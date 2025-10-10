@@ -1,7 +1,7 @@
 #include <iostream>
 #include <vector>
 #include <random>
-#include <chrono> // For timing
+#include <chrono>
 #include "board.hpp"
 #include "move.hpp"
 
@@ -13,21 +13,22 @@ int main() {
     std::mt19937 gen(rd());
 
     int i = 0;
+    double total_time = 0;
 
     while (true) {
         std::cout << "Press Enter to play a random white move..." << chess::Colour(i % 2) << std::endl;
-        std::cin.get(); // wait for Enter
+        std::cin.get();
 
-        // Start timer
         auto start_time = std::chrono::high_resolution_clock::now();
 
         std::vector<chess::Move> moves = board.generate_all_legal_moves(chess::Colour(i % 2));
 
-        // End timer
         auto end_time = std::chrono::high_resolution_clock::now();
         
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+        total_time += duration.count();
         std::cout << "Generation took " << duration.count() << " microseconds." << std::endl;
+        std::cout << "Current average: " << total_time/(i+1) << " microseconds." << std::endl;
 
         if (!moves.empty()) {
             std::uniform_int_distribution<> distrib(0, moves.size() - 1);

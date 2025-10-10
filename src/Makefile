@@ -1,20 +1,20 @@
 CXX = g++
 CXXFLAGS = -g -Wall -std=c++17
 
-SRC_DIR = src
-SRC = $(shell find $(SRC_DIR) -name '*.cpp')
-OBJ_DIR = build
-OBJ = $(patsubst $(SRC_DIR)/%, $(OBJ_DIR)/%, $(SRC:.cpp=.o))
+# find all .cpp files relative to current directory (src/)
+SRC = $(shell find . -name '*.cpp')
 
-INCLUDE_DIRS = $(shell find $(SRC_DIR) -type d)
+OBJ_DIR = ../build
+OBJ = $(patsubst ./%, $(OBJ_DIR)/%, $(SRC:.cpp=.o))
+
+INCLUDE_DIRS = $(shell find . -type d)
 INCLUDE_FLAGS = $(patsubst %,-I%,$(INCLUDE_DIRS))
 
-TARGET = chess
+TARGET = ../chess   # executable in project root
 
 all: $(TARGET)
 
-# Compile each source file into build/ while preserving directory structure
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
+$(OBJ_DIR)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(INCLUDE_FLAGS) -c $< -o $@
 

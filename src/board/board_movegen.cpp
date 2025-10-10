@@ -92,6 +92,7 @@ namespace chess{
     */
     std::vector<Move> Board::generate_all_moves(Colour player) {
         std::vector<Move> moves = {};
+        moves.reserve(256); 
         
         uint64_t full_spaces = pieces_c[WHITE] | pieces_c[BLACK];
         uint64_t empty_spaces = ~full_spaces;
@@ -241,4 +242,5 @@ namespace chess{
     std::vector<Move> Board::generate_all_legal_moves(Colour player) {
         return filter_legal_moves(generate_all_moves(player), player);
     }
+
 }
