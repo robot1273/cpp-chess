@@ -37,7 +37,7 @@ namespace chess
             std::vector<Move> generate_all_moves(Colour player);
             std::vector<Move> generate_all_legal_moves(Colour player);
             std::vector<Move> filter_legal_moves(const std::vector<Move> &moves, Colour player);
-            bool king_in_check(Colour player);
+            bool king_in_check(Colour player, uint64_t opponent_attacks);
     };
 
 }

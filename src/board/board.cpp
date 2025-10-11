@@ -21,8 +21,12 @@ namespace chess{
         rook_attacks.resize(64);
         bishop_attacks.resize(64);
 
+        std::cout << "Generating magic numbers (wait a few seconds) ..." << std::endl;
+
         rook_magics = generate_magic_numbers(true, rook_attacks);
         bishop_magics = generate_magic_numbers(false, bishop_attacks);
+
+        std::cout << "\033[1A\033[2K\r"; //erase debug line
     } 
 
     Piece Board::get_piece_type(int idx){
@@ -49,12 +53,12 @@ namespace chess{
         MoveFlag flag = move.flag();
         
         Piece piece_type = get_piece_type(start);
-        if (piece_type == NONE) { return UndoMove(move, NONE); } // no piece found, end early
+        if (piece_type == NONE) { return UndoMove(move, NONE, en_passant_moves, castling_rights); } // no piece found, end early
 
         Colour piece_colour = get_piece_colour(start);
 
         // Update castling rights
-        if (piece_type == ROOK) {
+        if (piece_type == ROOK) { // If you ever move a rook
             if (piece_colour == WHITE) {
                 if (start == BOTTOM_RIGHT_IDX) castling_rights &= ~0b0100; 
                 else if (start == BOTTOM_LEFT_IDX) castling_rights &= ~0b1000;
@@ -62,10 +66,35 @@ namespace chess{
                 if (start == TOP_RIGHT_IDX) castling_rights &= ~0b0010; 
                 else if (start == TOP_LEFT_IDX) castling_rights &= ~0b0001;
             }
-        } else if (piece_type == KING) {
-            if (piece_colour == WHITE) { castling_rights &= ~0b1100;} // Remove whites castling rights
-            else                       { castling_rights &= ~0b0011;} // Remove blacks castling rights
+        } else if (piece_type == KING) { // If you ever move a king
+            if (piece_colour == WHITE) { castling_rights &= ~0b1100;} // Remove white's castling rights
+            else                       { castling_rights &= ~0b0011;} // Remove black's castling rights
         }
+
+        // Handle castling moves
+        // start is the king start position, end is king final position
+        if (flag == CASTLE_KINGSIDE || flag == CASTLE_QUEENSIDE) { // Move the king if castling
+            
+            uint64_t king_mask = (1ULL << start) | (1ULL << end);
+            uint64_t rook_mask;
+            
+            if (flag == CASTLE_KINGSIDE){  // Get rook move mask
+                int rook_idx = (piece_colour == WHITE) ? 7 : 63;
+                rook_mask = (1ULL << rook_idx) | (1ULL << (rook_idx - 2)); //Shift rook to the left 2x
+            } else if (flag == CASTLE_QUEENSIDE) {
+                int rook_idx = (piece_colour == WHITE) ? 0 : 56;
+                rook_mask = (1ULL << rook_idx) | (1ULL << (rook_idx + 3)); //Shift rook to the right 3x
+            }
+
+            pieces_t[KING] ^= king_mask; //Move king
+            pieces_c[piece_colour] ^= king_mask;
+
+            pieces_t[ROOK] ^= rook_mask; //Move rook
+            pieces_c[piece_colour] ^= rook_mask;
+            
+            return {move, NONE, en_passant_moves, castling_rights};
+        }    
+
         
         // thanks kutay i stole this idea from you MUAHAHA
         uint64_t start_mask = (1ULL << start); 
@@ -82,7 +111,6 @@ namespace chess{
 
         pieces_t[piece_type]   ^= full_mask;  // move on type board
         pieces_c[piece_colour] ^= full_mask;  // move on colour board
-
 
         // Flag handling
         if (flag == MoveFlag::EN_PASSANT){ //En passant
@@ -101,13 +129,14 @@ namespace chess{
             en_passant_moves = (1ULL << ep_sq);
         }
 
-        return {move, captured_piece, old_en_passant}; //return the data to undo thhe move
+        return {move, captured_piece, old_en_passant, castling_rights}; //return the data to undo thhe move
     };
 
     void Board::undo_move(UndoMove undo_move) {
         int start = undo_move.move.start();
         int end = undo_move.move.end();
         en_passant_moves = undo_move.en_passant_state; //restore en passant state
+        castling_rights = undo_move.castling_rights_state; //restore castling rights
 
         MoveFlag flag = undo_move.move.flag();
         Piece captured_piece = undo_move.captured_piece;
@@ -119,6 +148,29 @@ namespace chess{
         uint64_t end_mask = (1ULL << end);
         uint64_t full_mask = start_mask | end_mask;
 
+        // Undo castling moves
+        if (flag == CASTLE_KINGSIDE || flag == CASTLE_QUEENSIDE) { // Move the king if castling
+            uint64_t king_mask = (1ULL << start) | (1ULL << end);
+            uint64_t rook_mask;
+            
+            if (flag == CASTLE_KINGSIDE){  // Get rook move mask
+                int rook_idx = (mover_colour == WHITE) ? 7 : 63;
+                rook_mask = (1ULL << rook_idx) | (1ULL << (rook_idx - 2)); //Shift rook to the left 2x
+            } else if (flag == CASTLE_QUEENSIDE) {
+                int rook_idx = (mover_colour == WHITE) ? 0 : 56;
+                rook_mask = (1ULL << rook_idx) | (1ULL << (rook_idx + 3)); //Shift rook to the right 3x
+            }
+
+
+            pieces_t[KING] ^= king_mask; //Move king
+            pieces_c[mover_colour] ^= king_mask;
+
+            pieces_t[ROOK] ^= rook_mask; //Move rook
+            pieces_c[mover_colour] ^= rook_mask;
+            
+            return; //End early
+        }  
+            
         if (isPromotion(flag)){ // first check if move was a promotion
             pieces_t[PAWN] |= end_mask; // add back to pawn mask
             pieces_t[moving_piece] ^= end_mask; // remove original piece type
@@ -135,7 +187,6 @@ namespace chess{
             pieces_t[PAWN] |= captured_square; // restore taken pawn
             pieces_c[mover_colour == WHITE ? BLACK : WHITE] |= captured_square; 
         }
-        
         
         if (captured_piece != NONE) { // restore the old piece
             Colour captured_colour = (mover_colour == WHITE) ? BLACK : WHITE;

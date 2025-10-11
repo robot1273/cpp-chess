@@ -19,7 +19,18 @@ namespace chess{
         0xFEFEFEFEFEFEFEFEULL,
         0x7F7F7F7F7F7F7F7FULL
     };
-    
+
+    // squares that must be empty for castling to be legal
+    static constexpr uint64_t white_kingside_castle_mask  = 0x0000000000000060;
+    static constexpr uint64_t white_queenside_castle_mask = 0x000000000000000E;
+
+    static constexpr uint64_t black_kingside_castle_mask  = 0x6000000000000000;
+    static constexpr uint64_t black_queenside_castle_mask = 0x0E00000000000000;
+
+    // squares that must be not attacked for queenside castling (kingside castle path == castle mask)
+    static constexpr uint64_t white_queenside_king_path   = 0x0C;
+    static constexpr uint64_t black_queenside_king_path   = 0x0C00000000000000;
+        
     /*
       Generates a bitboard with every possible attacked square, regardless of whats on the attacked square
       Used to efficiently identify king checks
@@ -202,7 +213,7 @@ namespace chess{
         uint64_t h = king & 0x7f7f7f7f7f7f7f7fULL;
 
         uint64_t moves_mask = (a << 7) | (king << 8) | (h << 9) |
-                              (a >> 1) | (h << 1) |
+                              (a >> 1) | (h << 1)    |
                               (a >> 9) | (king >> 8) | (h >> 7);
 
         moves_mask &= ~pieces_c[player];
@@ -211,14 +222,52 @@ namespace chess{
             moves.emplace_back(Move(king_idx, __builtin_ctzll(board)));
         }   
 
-        return moves;
-    }
+        // Castling moves  !!
+        // A castling move has start = the king square, end = the king end square 
 
-    /* Checks if a king is in check in the current board state */
-    bool Board::king_in_check(Colour player) {
+        bool can_castle_maybe = (player == WHITE) ? ((castling_rights & 0b1100) != 0) : ((castling_rights & 0b0011) != 0);  // Should we even bother with castling computation?
+
+        if (!can_castle_maybe) { return moves; } //If no castling available, end now!
+
+        bool queenside_is_free, kingside_is_free;
+
+        // OK so we might have the rights, but are the spaces free?
+        if (player == WHITE){
+            queenside_is_free = (castling_rights & 0b1000) && !(full_spaces & white_queenside_castle_mask);
+            kingside_is_free  = (castling_rights & 0b0100) && !(full_spaces & white_kingside_castle_mask);
+        } else {
+            queenside_is_free = (castling_rights & 0b0010) && !(full_spaces & black_queenside_castle_mask);
+            kingside_is_free  = (castling_rights & 0b0001) && !(full_spaces & black_kingside_castle_mask);
+        }
+
+        if (!queenside_is_free && !kingside_is_free){ return moves; }  //The spaces on both sides are not free! End now!!!!!!!!
+        
+        //Okay we can likely castle, so *now* we do the expensive generate attacks calculationz`    
+
         Colour opponent = (player == WHITE) ? BLACK : WHITE;
         uint64_t opponent_attacks = generate_all_attacks_bitboard(opponent);
 
+        if (king_in_check(player, opponent_attacks)) { return moves; } // If the king is in check, we can't castle! END NOW!!!!
+
+        bool queenside_is_attacked = opponent_attacks & (player == WHITE ? white_queenside_king_path : black_queenside_king_path);
+        bool kingside_is_attacked  = opponent_attacks & (player == WHITE ? white_kingside_castle_mask : black_kingside_castle_mask);
+
+        bool queenside_can_castle = queenside_is_free && !queenside_is_attacked;
+        bool kingside_can_castle  = kingside_is_free && !kingside_is_attacked;
+
+        if (queenside_can_castle) { // can we castle fr? :)
+            moves.emplace_back(king_idx, king_idx-2, MoveFlag::CASTLE_QUEENSIDE); 
+        }
+        if (kingside_can_castle)  { 
+            moves.emplace_back(king_idx, king_idx+2, MoveFlag::CASTLE_KINGSIDE); 
+        }
+
+        return moves;
+    }
+
+
+    /* Checks if a king is in check in the current board state */
+    bool Board::king_in_check(Colour player, uint64_t opponent_attacks) {
         return (opponent_attacks & pieces_t[KING] & pieces_c[player]) != 0;
     }
 
@@ -229,7 +278,10 @@ namespace chess{
         for (const Move& move : moves) {
             UndoMove undo = play_move(move); // simulate move
 
-            if (!king_in_check(player)) { //check move
+            Colour opponent = (player == WHITE) ? BLACK : WHITE;
+            uint64_t opponent_attacks = generate_all_attacks_bitboard(opponent);
+
+            if (!king_in_check(player, opponent_attacks)) { //check move
                 legal_moves.push_back(move);
             }
 

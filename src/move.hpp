@@ -32,7 +32,8 @@ namespace chess {
         Move move;
         Piece captured_piece;
         uint64_t en_passant_state;
-        UndoMove(Move m, Piece cp = NONE, uint64_t enp = 0ULL) :
-             move(m), captured_piece(cp), en_passant_state(enp) {}
+        uint8_t castling_rights_state;
+        UndoMove(Move m, Piece cp, uint64_t enpassant, uint8_t castling_rights) :
+             move(m), captured_piece(cp), en_passant_state(enpassant), castling_rights_state(castling_rights) {}
     };
 }
