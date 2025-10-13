@@ -2,8 +2,8 @@
 #include <vector>
 #include <random>
 #include <chrono>
+
 #include "board.hpp"
-#include "move.hpp"
 
 int main() {
     chess::Board board;
@@ -33,7 +33,10 @@ int main() {
         if (!moves.empty()) {
             std::uniform_int_distribution<> distrib(0, moves.size() - 1);
             chess::Move random_move = moves[distrib(gen)];
-
+            
+            std::string uci = chess::moveToUCI(random_move);
+            std::cout << "Move played: " << uci << std::endl;
+            
             board.play_move(random_move);
         } else {
             std::cout << "No legal moves!" << std::endl;

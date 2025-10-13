@@ -41,10 +41,10 @@ namespace chess{
     }
 
     // for rook position detection
-    constexpr int BOTTOM_LEFT_IDX  = 0;  // A1
-    constexpr int BOTTOM_RIGHT_IDX = 7;  // H1
-    constexpr int TOP_LEFT_IDX     = 56; // A8
-    constexpr int TOP_RIGHT_IDX    = 63; // H8
+    constexpr int BOTTOM_LEFT_IDX  = 0;
+    constexpr int BOTTOM_RIGHT_IDX = 7;
+    constexpr int TOP_LEFT_IDX     = 56;
+    constexpr int TOP_RIGHT_IDX    = 63;
 
     /* Does not validate the move played! */
     UndoMove Board::play_move(Move move){
@@ -195,7 +195,8 @@ namespace chess{
         }
 
     };
-    
+
+    // simple I/O
     void Board::display_board() {
         for (int rank = 7; rank >= 0; rank--) {        
             for (int file = 0; file < 8; file++) {
@@ -214,5 +215,10 @@ namespace chess{
             }
             std::cout << std::endl;
         }
+    }
+
+    UndoMove Board::play_move(std::string uci){
+        Move move = uciToMove(uci);
+        return play_move(move);
     }
 };

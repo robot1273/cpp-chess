@@ -1,8 +1,18 @@
+#pragma once
+
+#include <cstdint>
 #include <iostream>
-#include "utility.hpp"
 
 namespace chess::utility {
-    void print_bitboard(uint64_t &board) {
+    inline void setBit(uint64_t &board, int idx) {board |= 1ULL << idx;}
+    inline void unsetBit(uint64_t &board, int idx) {board &= ~(1ULL << idx);}
+    inline void toggleBit(uint64_t &board, int idx) {board ^= 1ULL << idx;}
+    inline bool readBit(uint64_t &board, int idx) {return (board >> idx) & 1ULL;}
+
+    void print_bitboard(uint64_t &board);
+    void print_bitboard_solid(uint64_t &board);
+
+    inline void print_bitboard(uint64_t &board) {
         for (int rank = 7; rank >= 0; rank--) {         
             for (int file = 0; file < 8; file++) {
                 int idx = rank * 8 + file;
@@ -14,7 +24,7 @@ namespace chess::utility {
         std::cout << std::endl;
     }
 
-    void print_bitboard_solid(uint64_t &board) {
+    inline void print_bitboard_solid(uint64_t &board) {
         for (int rank = 7; rank >= 0; rank--) {         
             for (int file = 0; file < 8; file++) {
                 int idx = rank * 8 + file;
