@@ -6,7 +6,7 @@
 #include <iostream>
 
 namespace chess{
-    Board::Board(){ 
+    Board::Board(){
         //Initialise board state
         pieces_t[PAWN]   = 0x00FF00000000FF00;
         pieces_t[KNIGHT] = 0x4200000000000042;
@@ -21,22 +21,23 @@ namespace chess{
         rook_attacks.resize(64);
         bishop_attacks.resize(64);
 
+        // TODO: make a global pre-calculation instead of a per-instance calculation
         std::cout << "Generating magic numbers (wait a few seconds) ..." << std::endl;
 
         rook_magics = generate_magic_numbers(true, rook_attacks);
         bishop_magics = generate_magic_numbers(false, bishop_attacks);
 
         std::cout << "\033[1A\033[2K\r"; //erase debug line
-    } 
+    }
 
-    Piece Board::get_piece_type(int idx){
+    Piece const Board::get_piece_type(int idx){
         for (int i = 0; i < 6; i++){
             if (utility::readBit(pieces_t[i], idx)) { return Piece(i); }
         }
         return NONE;
     }
 
-    Colour Board::get_piece_colour(int idx){
+    Colour const Board::get_piece_colour(int idx){
         return utility::readBit(pieces_c[WHITE], idx) ? WHITE : BLACK;
     }
 
@@ -51,33 +52,40 @@ namespace chess{
         int start = move.start();
         int end = move.end();
         MoveFlag flag = move.flag();
-        
+
+        if (flag == MoveFlag::NULL_MOVE){
+            throw std::runtime_error("ERROR - Null move was played");
+        }
+
         Piece piece_type = get_piece_type(start);
         if (piece_type == NONE) { return UndoMove(move, NONE, en_passant_moves, castling_rights); } // no piece found, end early
 
         Colour piece_colour = get_piece_colour(start);
 
+        uint8_t old_castling_rights = castling_rights; //Save old data to give to undo
+        uint64_t old_en_passant = en_passant_moves;
+
         // Update castling rights
         if (piece_type == ROOK) { // If you ever move a rook
             if (piece_colour == WHITE) {
-                if (start == BOTTOM_RIGHT_IDX) castling_rights &= ~0b0100; 
+                if (start == BOTTOM_RIGHT_IDX) castling_rights &= ~0b0100;
                 else if (start == BOTTOM_LEFT_IDX) castling_rights &= ~0b1000;
             } else {
-                if (start == TOP_RIGHT_IDX) castling_rights &= ~0b0010; 
+                if (start == TOP_RIGHT_IDX) castling_rights &= ~0b0010;
                 else if (start == TOP_LEFT_IDX) castling_rights &= ~0b0001;
             }
         } else if (piece_type == KING) { // If you ever move a king
             if (piece_colour == WHITE) { castling_rights &= ~0b1100;} // Remove white's castling rights
             else                       { castling_rights &= ~0b0011;} // Remove black's castling rights
         }
-
         // Handle castling moves
         // start is the king start position, end is king final position
+
         if (flag == CASTLE_KINGSIDE || flag == CASTLE_QUEENSIDE) { // Move the king if castling
-            
+
             uint64_t king_mask = (1ULL << start) | (1ULL << end);
             uint64_t rook_mask;
-            
+
             if (flag == CASTLE_KINGSIDE){  // Get rook move mask
                 int rook_idx = (piece_colour == WHITE) ? 7 : 63;
                 rook_mask = (1ULL << rook_idx) | (1ULL << (rook_idx - 2)); //Shift rook to the left 2x
@@ -91,22 +99,30 @@ namespace chess{
 
             pieces_t[ROOK] ^= rook_mask; //Move rook
             pieces_c[piece_colour] ^= rook_mask;
-            
-            return {move, NONE, en_passant_moves, castling_rights};
-        }    
 
-        
+            return {move, NONE, en_passant_moves, old_castling_rights};
+        }
+
+
         // thanks kutay i stole this idea from you MUAHAHA
-        uint64_t start_mask = (1ULL << start); 
+        uint64_t start_mask = (1ULL << start);
         uint64_t end_mask   = (1ULL << end);
-        uint64_t full_mask  = start_mask | end_mask; 
-        
+        uint64_t full_mask  = start_mask | end_mask;
+
         // handle capturing pieces
         Piece captured_piece = get_piece_type(end);
         if (captured_piece != NONE){
             Colour captured_colour = get_piece_colour(end);
-            pieces_t[captured_piece] ^= end_mask; 
+            pieces_t[captured_piece] ^= end_mask;
             pieces_c[captured_colour] ^= end_mask; // opposite colour
+
+            // if we moved to a corner, remove castling rights
+            switch (end) {
+                case 0:  castling_rights &= ~0b1000; break; // white queenside
+                case 7:  castling_rights &= ~0b0100; break; // white kingside
+                case 56: castling_rights &= ~0b0001; break; // black queenside
+                case 63: castling_rights &= ~0b0010; break; // black kingside
+            }
         }
 
         pieces_t[piece_type]   ^= full_mask;  // move on type board
@@ -118,18 +134,17 @@ namespace chess{
             pieces_t[PAWN] ^= captured_space;
             pieces_c[piece_colour == WHITE ? BLACK : WHITE] ^= captured_space;
         } else if (isPromotion(flag)) { // Promotion
-            pieces_t[PAWN] ^= end_mask;  // remove pawn from original
-            pieces_t[Piece(flag-1)] |= end_mask; //promotion_flag - 1 = corresponding piece
+            pieces_t[PAWN] ^= end_mask;  // clear from pawn bitboard
+            pieces_t[Piece(flag - 1)] |= end_mask; //promotion_flag - 1 = corresponding piece
         }
 
-        uint64_t old_en_passant = en_passant_moves; // save old state for undo
         en_passant_moves = 0ULL; //Reset en passant squares after a move is played
         if (piece_type == PAWN && abs(end - start) == 16) {
             int ep_sq = (start + end) / 2;
             en_passant_moves = (1ULL << ep_sq);
         }
 
-        return {move, captured_piece, old_en_passant, castling_rights}; //return the data to undo thhe move
+        return {move, captured_piece, old_en_passant, old_castling_rights}; //return the data to undo thhe move
     };
 
     void Board::undo_move(UndoMove undo_move) {
@@ -152,7 +167,7 @@ namespace chess{
         if (flag == CASTLE_KINGSIDE || flag == CASTLE_QUEENSIDE) { // Move the king if castling
             uint64_t king_mask = (1ULL << start) | (1ULL << end);
             uint64_t rook_mask;
-            
+
             if (flag == CASTLE_KINGSIDE){  // Get rook move mask
                 int rook_idx = (mover_colour == WHITE) ? 7 : 63;
                 rook_mask = (1ULL << rook_idx) | (1ULL << (rook_idx - 2)); //Shift rook to the left 2x
@@ -167,27 +182,27 @@ namespace chess{
 
             pieces_t[ROOK] ^= rook_mask; //Move rook
             pieces_c[mover_colour] ^= rook_mask;
-            
+
             return; //End early
-        }  
-            
+        }
+
         if (isPromotion(flag)){ // first check if move was a promotion
             pieces_t[PAWN] |= end_mask; // add back to pawn mask
             pieces_t[moving_piece] ^= end_mask; // remove original piece type
             moving_piece = PAWN; //set piece type to pawn
         }
-        
-        pieces_t[moving_piece] ^= full_mask; // move the original piece back 
+
+        pieces_t[moving_piece] ^= full_mask; // move the original piece back
         pieces_c[mover_colour] ^= full_mask;
 
 
         //restore pawn taken by en passant (captured piece should be NONE)
-        if (flag == MoveFlag::EN_PASSANT) { 
+        if (flag == MoveFlag::EN_PASSANT && moving_piece == PAWN) {
             uint64_t captured_square = (mover_colour == WHITE) ? (1ULL << (end - 8)) : (1ULL << (end + 8));
             pieces_t[PAWN] |= captured_square; // restore taken pawn
-            pieces_c[mover_colour == WHITE ? BLACK : WHITE] |= captured_square; 
+            pieces_c[mover_colour == WHITE ? BLACK : WHITE] |= captured_square;
         }
-        
+
         if (captured_piece != NONE) { // restore the old piece
             Colour captured_colour = (mover_colour == WHITE) ? BLACK : WHITE;
             pieces_t[captured_piece] ^= end_mask;
@@ -198,14 +213,14 @@ namespace chess{
 
     // simple I/O
     void Board::display_board() {
-        for (int rank = 7; rank >= 0; rank--) {        
+        for (int rank = 7; rank >= 0; rank--) {
             for (int file = 0; file < 8; file++) {
                 int idx = rank * 8 + file;
                 std::string piece = ".";
 
                 bool is_white = utility::readBit(pieces_c[WHITE], idx);
                 for (int i = 0; i < 6; i++) {
-                    if (utility::readBit(pieces_t[i], idx)) { 
+                    if (utility::readBit(pieces_t[i], idx)) {
                         piece = is_white ? WHITE_PIECES[i] : BLACK_PIECES[i];
                         break;
                     }

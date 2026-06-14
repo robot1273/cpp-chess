@@ -1,10 +1,9 @@
 #pragma once
 
 #include <cstdint> //for uint64
-#include <string>
 #include <vector>
 
-namespace chess 
+namespace chess
 {
     std::vector<std::vector<uint64_t>> generate_attack_board(bool is_rook);
     std::vector<uint64_t> generate_magic_numbers(bool is_rook, std::vector<std::vector<uint64_t>>& attack_table);

@@ -1,27 +1,28 @@
 #include <iostream>
-#include <vector>
-#include <random>
 #include <chrono>
 
 #include "board.hpp"
+#include "search.hpp"
+#include "evaluation.hpp"
 
 int main() {
     chess::Board board;
     board.display_board();
-    
-    std::random_device rd;
-    std::mt19937 gen(rd());
 
     int i = 0;
     double total_time = 0;
 
+    int max_depth = 1;
+        
     while (true) {
-        std::cout << "Press Enter to play a random white move..." << chess::Colour(i % 2) << std::endl;
+        chess::Colour player = chess::Colour(i % 2);
+        std::cout << "Press Enter to play a random white move..." << player << std::endl;
         std::cin.get();
 
         auto start_time = std::chrono::high_resolution_clock::now();
 
-        std::vector<chess::Move> moves = board.generate_all_legal_moves(chess::Colour(i % 2));
+        //chess::Move move = chess::find_best_move(board, player, max_depth);
+        chess::Move move = chess::find_random_move(board, player);
 
         auto end_time = std::chrono::high_resolution_clock::now();
         
@@ -29,21 +30,19 @@ int main() {
         total_time += duration.count();
         std::cout << "Generation took " << duration.count() << " microseconds." << std::endl;
         std::cout << "Current average: " << total_time/(i+1) << " microseconds." << std::endl;
-
-        if (!moves.empty()) {
-            std::uniform_int_distribution<> distrib(0, moves.size() - 1);
-            chess::Move random_move = moves[distrib(gen)];
-            
-            std::string uci = chess::moveToUCI(random_move);
+        
+        if (!(move.flag() == chess::MoveFlag::NULL_MOVE)){
+            std::string uci = chess::moveToUCI(move);
             std::cout << "Move played: " << uci << std::endl;
+            board.play_move(move);
             
-            board.play_move(random_move);
         } else {
-            std::cout << "No legal moves!" << std::endl;
+            std::cout << "No valid moves"  << std::endl;
             return 0;
         }
 
         board.display_board();
+        std::cout << "Evaluation: " << chess::mobility_eval(board) << std::endl;
         std::cout << std::endl;
         i++;
     }

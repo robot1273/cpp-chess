@@ -1,14 +1,14 @@
-#include "utility.hpp"
 #include "board_precalculation.hpp"
 #include <vector>
-#include <random>
+#include <cmath>
+#include <iostream>
 
 namespace chess
 {
     int rook_directions[4]   = {8, -8, 1, -1};
     int bishop_directions[4] = {9, -9, 7, -7};
-    
-    /* 
+
+    /*
        Makes a mask for a rook or bishop given starting position
     */
     uint64_t get_sliding_piece_mask(int piece_idx, bool is_rook){
@@ -26,14 +26,12 @@ namespace chess
                 int old_rank = current_pos >> 3; int old_file = current_pos & 7;
                 int new_rank = next_pos >> 3; int new_file = next_pos & 7;
 
-                //if (new_rank == 0 || new_rank == 7 || new_file == 0 || new_file == 7) { break; } // do not include edges
-                
-                if (is_rook) {
-                    if ((abs(direction) == 1) && new_rank != old_rank) { break; } 
+                if (is_rook) { // wrap-around
+                    if ((abs(direction) == 1) && new_rank != old_rank) { break; }
                 } else {
-                    if (abs(new_rank - old_rank) != abs(new_file - old_file)) { break; } 
+                    if (abs(new_rank - old_rank) != abs(new_file - old_file)) { break; }
                 }
-                
+
                 mask |= 1ULL << next_pos;
                 current_pos = next_pos;
             }
@@ -58,7 +56,7 @@ namespace chess
         return occupancy;
     }
 
-    /* 
+    /*
        Given a starting pos and occupied spaces, generates a bitboard of legal end positions
        is_rook -> true generates rook moves, false generates bishop moves
        Inclusive of the blocking piece!
@@ -77,11 +75,11 @@ namespace chess
 
                 int old_rank = current_pos >> 3; int old_file = current_pos & 7;
                 int new_rank = next_pos >> 3; int new_file = next_pos & 7;
-                
+
                 if (is_rook) {
-                    if ((abs(direction) == 1) && new_rank != old_rank) { break; } 
+                    if ((abs(direction) == 1) && new_rank != old_rank) { break; }
                 } else {
-                    if (abs(new_rank - old_rank) != abs(new_file - old_file)) { break; } 
+                    if (abs(new_rank - old_rank) != abs(new_file - old_file)) { break; }
                 }
 
                 uint64_t bb = 1ULL << next_pos;
@@ -106,10 +104,10 @@ namespace chess
             uint64_t occupancy_mask = generate_occupancy(moves_mask, occupancy_n);
             attacks.emplace_back(get_sliding_moves(square, occupancy_mask, is_rook));
         }
-        
+
         return attacks;
     }
-    
+
     uint64_t random_u64() {
         static uint64_t x = 127369420ULL;
         x ^= x << 13;
@@ -129,16 +127,16 @@ namespace chess
         for (int sq = 0; sq < 64; sq++){
             uint64_t mask = get_sliding_piece_mask(sq, is_rook);
             std::vector<uint64_t> attacks = generate_attacks_for_square(sq, is_rook);
-            
+
             int mask_bits = __builtin_popcountll(mask);
             int shift_value = 64 - mask_bits;
             int max_occupancy_n = (1 << mask_bits);
-            
+
             bool failed = true; // assume failiure until magic is found for square
             std::vector<uint64_t> used_attacks(max_occupancy_n, 0ULL);
             std::vector<bool> has_been_used(max_occupancy_n);
 
-            for (int i = 0; i < max_iterations; i++){    
+            for (int i = 0; i < max_iterations; i++){
                 uint64_t magic = random_u64() & random_u64() & random_u64(); //sparse magic number
                 if (__builtin_popcountll((mask * magic) & 0xFF00000000000000ULL) < 8) { continue; } // skip magics that dont use upper bits
                 std::fill(has_been_used.begin(), has_been_used.end(), false); //reset used moves
@@ -169,9 +167,9 @@ namespace chess
                 std::cout << "CRITICAL ERROR: Failed to generate a magic number for " << sq << std::endl;
                 throw std::runtime_error("Fatal error - magic numbers not generated");
             }
-            
+
         }
-        
+
         return magics;
     }
 

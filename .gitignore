@@ -2,3 +2,5 @@ chess
 .vscode/
 src/build/
 build/
+output.txt
+test.py

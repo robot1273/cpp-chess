@@ -1,7 +1,6 @@
 #include "board.hpp"
 #include "board_precalculation.hpp"
 #include <vector>
-#include "utility.hpp"
 
 namespace chess{
     inline uint64_t shift(const uint64_t b, int offset) {
@@ -12,12 +11,12 @@ namespace chess{
     static constexpr uint64_t knight_masks[8] = {
         0x7F7F7F7F7F7F7F7FULL,
         0xFEFEFEFEFEFEFEFEULL,
-        0x3F3F3F3F3F3F3F3FULL, 
+        0x3F3F3F3F3F3F3F3FULL,
         0xFCFCFCFCFCFCFCFCULL,
         0x3F3F3F3F3F3F3F3FULL,
         0xFCFCFCFCFCFCFCFCULL,
-        0xFEFEFEFEFEFEFEFEULL,
-        0x7F7F7F7F7F7F7F7FULL
+        0x7F7F7F7F7F7F7F7FULL,
+        0xFEFEFEFEFEFEFEFEULL
     };
 
     // squares that must be empty for castling to be legal
@@ -30,12 +29,12 @@ namespace chess{
     // squares that must be not attacked for queenside castling (kingside castle path == castle mask)
     static constexpr uint64_t white_queenside_king_path   = 0x0C;
     static constexpr uint64_t black_queenside_king_path   = 0x0C00000000000000;
-        
+
     /*
       Generates a bitboard with every possible attacked square, regardless of whats on the attacked square
       Used to efficiently identify king checks
      */
-    uint64_t Board::generate_all_attacks_bitboard(Colour player) {
+    uint64_t const Board::generate_all_attacks_bitboard(Colour player) {
         uint64_t attacks = 0ULL;
 
         uint64_t full_spaces = pieces_c[WHITE] | pieces_c[BLACK];
@@ -47,13 +46,13 @@ namespace chess{
         int take_left_offset   = (player == WHITE) ? 7 : -9;
         int take_right_offset  = (player == WHITE) ? 9 : -7;
 
-        pawns_take_left   = shift(pawns & 0xFEFEFEFEFEFEFEFEULL, take_left_offset); 
-        pawns_take_right  = shift(pawns & 0x7F7F7F7F7F7F7F7FULL, take_right_offset); 
+        pawns_take_left   = shift(pawns & 0xFEFEFEFEFEFEFEFEULL, take_left_offset);
+        pawns_take_right  = shift(pawns & 0x7F7F7F7F7F7F7F7FULL, take_right_offset);
 
-        attacks |= pawns_take_left | pawns_take_right; //add pawn attacks 
-        
+        attacks |= pawns_take_left | pawns_take_right; //add pawn attacks
+
         // -------------------------- Knight moves -------------------------- //
-        uint64_t knights = pieces_t[KNIGHT] & pieces_c[player]; 
+        uint64_t knights = pieces_t[KNIGHT] & pieces_c[player];
 
         for (int i = 0; i < 8; i++){
             attacks |= shift(knights, knight_offsets[i]) & knight_masks[i]; //add knight attacks
@@ -61,18 +60,18 @@ namespace chess{
 
         // -------------------------- Sliding moves -------------------------- //
 
-        //Helper lambda function to generate sliding moves  
-        auto gen_sliding = [&](uint64_t pieces, bool is_rook) { 
+        //Helper lambda function to generate sliding moves
+        auto gen_sliding = [&](uint64_t pieces, bool is_rook) {
             for (uint64_t board = pieces; board; board &= board - 1) { //for each straight slider
                 int square = __builtin_ctzll(board);
-                
+
                 uint64_t mask = get_sliding_piece_mask(square, is_rook);
                 uint64_t occupancy = full_spaces & mask;
 
                 uint64_t magic = is_rook ? rook_magics[square] : bishop_magics[square];
                 int mask_bits = __builtin_popcountll(mask);
                 int index = (occupancy * magic) >> (64 - mask_bits);
-            
+
                 uint64_t possible_moves = is_rook ? rook_attacks[square][index] : bishop_attacks[square][index];
                 attacks |= possible_moves;
             }
@@ -85,7 +84,7 @@ namespace chess{
         gen_sliding(diagonal_sliding_pieces, false);
 
         // -------------------------- King moves -------------------------- //
-        uint64_t king = pieces_t[KING] & pieces_c[player]; 
+        uint64_t king = pieces_t[KING] & pieces_c[player];
         uint64_t a = king & 0xfefefefefefefefeULL; //prevent wraparound
         uint64_t h = king & 0x7f7f7f7f7f7f7f7fULL;
 
@@ -101,10 +100,10 @@ namespace chess{
     /*
       Generates all pseudolegal moves
     */
-    std::vector<Move> Board::generate_all_moves(Colour player) {
+    std::vector<Move> const Board::generate_all_moves(Colour player) {
         std::vector<Move> moves = {};
-        moves.reserve(256); 
-        
+        moves.reserve(256);
+
         uint64_t full_spaces = pieces_c[WHITE] | pieces_c[BLACK];
         uint64_t empty_spaces = ~full_spaces;
         Colour enemy = (player == WHITE) ? BLACK : WHITE;
@@ -113,7 +112,7 @@ namespace chess{
         uint64_t pawns_single_move, pawns_double_move, pawns_take_left, pawns_take_right;
         uint64_t pawns = pieces_t[PAWN] & pieces_c[player]; //inital positions
         uint64_t double_move_mask = (player == WHITE) ? 0x0000000000FF0000ULL : 0x0000FF0000000000ULL;
-        
+
         int single_move_offset = (player == WHITE) ? 8 : -8;
         int take_left_offset   = (player == WHITE) ? 7 : -9;
         int take_right_offset  = (player == WHITE) ? 9 : -7;
@@ -121,17 +120,17 @@ namespace chess{
         pawns_single_move = shift(pawns, single_move_offset) & empty_spaces;
         pawns_double_move = shift(pawns_single_move & double_move_mask, single_move_offset) & empty_spaces;
         pawns_take_left   = shift(pawns & 0xFEFEFEFEFEFEFEFEULL, take_left_offset) & (pieces_c[enemy] | en_passant_moves); // Can take on an imaginary en passant square
-        pawns_take_right  = shift(pawns & 0x7F7F7F7F7F7F7F7FULL, take_right_offset) & (pieces_c[enemy] | en_passant_moves); 
+        pawns_take_right  = shift(pawns & 0x7F7F7F7F7F7F7F7FULL, take_right_offset) & (pieces_c[enemy] | en_passant_moves);
 
         // generate promotion moves
         uint64_t final_rank_mask = (player == WHITE) ? 0xFF00000000000000ULL : 0x00000000000000FFULL;
         uint64_t final_rank_promoting_moves = (pawns_single_move | pawns_take_left | pawns_take_right) & final_rank_mask;
-        
-        auto add_pawn_moves = [&](uint64_t pawn_moves, int offset) { 
+
+        auto add_pawn_moves = [&](uint64_t pawn_moves, int offset) {
             uint64_t promoting_moves = pawn_moves & final_rank_promoting_moves;
             uint64_t en_passant_captures = pawn_moves & en_passant_moves;  // overlap between en passant spaces and possible moves
             uint64_t regular_moves = pawn_moves & ~final_rank_promoting_moves & ~en_passant_moves; //no en passant or promotion
-            
+
             for (uint64_t board = regular_moves; board; board &= board - 1) { //non-promoting moves
                 int move = __builtin_ctzll(board);
                 moves.emplace_back(Move(move - offset, move, MoveFlag::NONE_FLAG));
@@ -144,21 +143,21 @@ namespace chess{
                 moves.emplace_back(Move(move - offset, move, MoveFlag::PROMOTE_BISHOP));
                 moves.emplace_back(Move(move - offset, move, MoveFlag::PROMOTE_KNIGHT));
             }
-            
+
             for (uint64_t board = en_passant_captures; board; board &= board - 1) { //en passant captures
                 int move = __builtin_ctzll(board);
-                moves.emplace_back(Move(move - offset, move, MoveFlag::EN_PASSANT)); 
+                moves.emplace_back(Move(move - offset, move, MoveFlag::EN_PASSANT));
             }
 
         };
- 
+
         add_pawn_moves(pawns_single_move, single_move_offset);
         add_pawn_moves(pawns_double_move, single_move_offset * 2);
         add_pawn_moves(pawns_take_left,   take_left_offset);
         add_pawn_moves(pawns_take_right,  take_right_offset);
 
         // -------------------------- Knight moves -------------------------- //
-        uint64_t knights = pieces_t[KNIGHT] & pieces_c[player]; 
+        uint64_t knights = pieces_t[KNIGHT] & pieces_c[player];
         uint64_t knight_moves[8];
 
         for (int i = 0; i < 8; i++){
@@ -166,7 +165,7 @@ namespace chess{
         }
 
         for (int i = 0; i < 8; i++){
-            for (uint64_t board = knight_moves[i]; board; board &= board - 1) { 
+            for (uint64_t board = knight_moves[i]; board; board &= board - 1) {
                 int move = __builtin_ctzll(board);
                 moves.emplace_back(Move(move - knight_offsets[i], move));
             }
@@ -174,18 +173,18 @@ namespace chess{
 
         // -------------------------- Sliding moves -------------------------- //
 
-        //Helper lambda function to generate sliding moves  
-        auto gen_sliding = [&](uint64_t pieces, bool is_rook) { 
+        //Helper lambda function to generate sliding moves
+        auto gen_sliding = [&](uint64_t pieces, bool is_rook) {
             for (uint64_t board = pieces; board; board &= board - 1) { //for each straight slider
                 int square = __builtin_ctzll(board);
-                
+
                 uint64_t mask = get_sliding_piece_mask(square, is_rook);
                 uint64_t occupancy = full_spaces & mask;
 
                 uint64_t magic = is_rook ? rook_magics[square] : bishop_magics[square];
                 int mask_bits = __builtin_popcountll(mask);
                 int index = (occupancy * magic) >> (64 - mask_bits);
-            
+
                 uint64_t possible_moves = is_rook ? rook_attacks[square][index] : bishop_attacks[square][index];
 
                 possible_moves &= ~pieces_c[player]; //exclude friendly pieces
@@ -204,7 +203,7 @@ namespace chess{
         gen_sliding(diagonal_sliding_pieces, false);
 
         // -------------------------- King moves -------------------------- //
-        uint64_t king = pieces_t[KING] & pieces_c[player]; 
+        uint64_t king = pieces_t[KING] & pieces_c[player];
         if (!king) return moves; // UH OH!
 
         int king_idx = __builtin_ctzll(king);
@@ -218,12 +217,12 @@ namespace chess{
 
         moves_mask &= ~pieces_c[player];
 
-        for (uint64_t board = moves_mask; board; board &= board - 1) { 
+        for (uint64_t board = moves_mask; board; board &= board - 1) {
             moves.emplace_back(Move(king_idx, __builtin_ctzll(board)));
-        }   
+        }
 
         // Castling moves  !!
-        // A castling move has start = the king square, end = the king end square 
+        // A castling move has start = the king square, end = the king end square
 
         bool can_castle_maybe = (player == WHITE) ? ((castling_rights & 0b1100) != 0) : ((castling_rights & 0b0011) != 0);  // Should we even bother with castling computation?
 
@@ -241,25 +240,32 @@ namespace chess{
         }
 
         if (!queenside_is_free && !kingside_is_free){ return moves; }  //The spaces on both sides are not free! End now!!!!!!!!
-        
-        //Okay we can likely castle, so *now* we do the expensive generate attacks calculationz`    
 
-        Colour opponent = (player == WHITE) ? BLACK : WHITE;
-        uint64_t opponent_attacks = generate_all_attacks_bitboard(opponent);
+        if (king_in_check(player)) { return moves; } // If the king is in check, we can't castle! END NOW!!!!
+        bool queenside_can_castle = false;
+        bool kingside_can_castle = false;
 
-        if (king_in_check(player, opponent_attacks)) { return moves; } // If the king is in check, we can't castle! END NOW!!!!
-
-        bool queenside_is_attacked = opponent_attacks & (player == WHITE ? white_queenside_king_path : black_queenside_king_path);
-        bool kingside_is_attacked  = opponent_attacks & (player == WHITE ? white_kingside_castle_mask : black_kingside_castle_mask);
-
-        bool queenside_can_castle = queenside_is_free && !queenside_is_attacked;
-        bool kingside_can_castle  = kingside_is_free && !kingside_is_attacked;
-
-        if (queenside_can_castle) { // can we castle fr? :)
-            moves.emplace_back(king_idx, king_idx-2, MoveFlag::CASTLE_QUEENSIDE); 
+        if (player == WHITE) {
+            if (queenside_is_free) { // white queenside path safety (C1 and D1)
+                queenside_can_castle = !is_square_attacked(2, WHITE) && !is_square_attacked(3, WHITE);
+            }
+            if (kingside_is_free) { // white kingside path safety (F1 and G1)
+                kingside_can_castle  = !is_square_attacked(5, WHITE) && !is_square_attacked(6, WHITE);
+            }
+        } else {
+            if (queenside_is_free) { // black queenside path safety (C8 and D8)
+                queenside_can_castle = !is_square_attacked(58, BLACK) && !is_square_attacked(59, BLACK);
+            }
+            if (kingside_is_free) { // black kingside path safety (F8 and G8)
+                kingside_can_castle  = !is_square_attacked(61, BLACK) && !is_square_attacked(62, BLACK);
+            }
         }
-        if (kingside_can_castle)  { 
-            moves.emplace_back(king_idx, king_idx+2, MoveFlag::CASTLE_KINGSIDE); 
+
+        if (queenside_can_castle) {
+            moves.emplace_back(king_idx, king_idx-2, MoveFlag::CASTLE_QUEENSIDE);
+        }
+        if (kingside_can_castle)  {
+            moves.emplace_back(king_idx, king_idx+2, MoveFlag::CASTLE_KINGSIDE);
         }
 
         return moves;
@@ -267,21 +273,60 @@ namespace chess{
 
 
     /* Checks if a king is in check in the current board state */
-    bool Board::king_in_check(Colour player, uint64_t opponent_attacks) {
-        return (opponent_attacks & pieces_t[KING] & pieces_c[player]) != 0;
+    bool const Board::king_in_check(Colour player) {
+        uint64_t king_bb = pieces_t[KING] & pieces_c[player];
+        return king_bb ? is_square_attacked(__builtin_ctzll(king_bb), player) : false;
     }
 
-    std::vector<Move> Board::filter_legal_moves(const std::vector<Move>& moves, Colour player) {
+    /* Generalisation of if a square is attacked */
+    bool const Board::is_square_attacked(int sq, Colour player) {
+        uint64_t sq_bb = 1ULL << sq;
+        Colour enemy = (player == WHITE) ? BLACK : WHITE;
+        uint64_t enemy_pieces = pieces_c[enemy];
+        uint64_t full_spaces = pieces_c[WHITE] | pieces_c[BLACK];
+
+        // 1. Knights
+        for (int i = 0; i < 8; i++) {
+            if ((shift(sq_bb, knight_offsets[i]) & knight_masks[i]) & (pieces_t[KNIGHT] & enemy_pieces)) return true;
+        }
+
+        // 2. Pawns
+        uint64_t pawn_attacks = (player == WHITE)
+            ? shift(sq_bb & 0x7F7F7F7F7F7F7F7FULL, 9) | shift(sq_bb & 0xFEFEFEFEFEFEFEFEULL, 7)
+            : shift(sq_bb & 0x7F7F7F7F7F7F7F7FULL, -7) | shift(sq_bb & 0xFEFEFEFEFEFEFEFEULL, -9);
+        if (pawn_attacks & (pieces_t[PAWN] & enemy_pieces)) return true;
+
+        // 3. Sliders
+        auto check_sliders = [&](bool is_rook, uint64_t attackers) {
+            if (!attackers) return false;
+            uint64_t mask = get_sliding_piece_mask(sq, is_rook);
+            uint64_t occ = full_spaces & mask;
+            uint64_t magic = is_rook ? rook_magics[sq] : bishop_magics[sq];
+            int index = (occ * magic) >> (64 - __builtin_popcountll(mask));
+            uint64_t attacks = is_rook ? rook_attacks[sq][index] : bishop_attacks[sq][index];
+            return (attacks & attackers) != 0;
+        };
+
+        if (check_sliders(true, (pieces_t[ROOK] | pieces_t[QUEEN]) & enemy_pieces)) return true;
+        if (check_sliders(false, (pieces_t[BISHOP] | pieces_t[QUEEN]) & enemy_pieces)) return true;
+
+        // 4. Enemy King
+        uint64_t a = sq_bb & 0xfefefefefefefefeULL;
+        uint64_t h = sq_bb & 0x7f7f7f7f7f7f7f7fULL;
+        uint64_t king_moves = (a << 7) | (sq_bb << 8) | (h << 9) | (a >> 1) | (h << 1) | (a >> 9) | (sq_bb >> 8) | (h >> 7);
+        if (king_moves & (pieces_t[KING] & enemy_pieces)) return true;
+
+        return false;
+    }
+
+    std::vector<Move> const Board::filter_legal_moves(const std::vector<Move>& moves, Colour player) {
         std::vector<Move> legal_moves;
-        legal_moves.reserve(moves.size()); 
+        legal_moves.reserve(moves.size());
 
         for (const Move& move : moves) {
             UndoMove undo = play_move(move); // simulate move
 
-            Colour opponent = (player == WHITE) ? BLACK : WHITE;
-            uint64_t opponent_attacks = generate_all_attacks_bitboard(opponent);
-
-            if (!king_in_check(player, opponent_attacks)) { //check move
+            if (!king_in_check(player)) { //check move
                 legal_moves.push_back(move);
             }
 
@@ -291,7 +336,7 @@ namespace chess{
         return legal_moves;
     }
 
-    std::vector<Move> Board::generate_all_legal_moves(Colour player) {
+    std::vector<Move> const Board::generate_all_legal_moves(Colour player) {
         return filter_legal_moves(generate_all_moves(player), player);
     }
 
