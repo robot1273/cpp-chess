@@ -1,5 +1,6 @@
 CXX = g++
-CXXFLAGS = -g -Wall -std=c++17
+# CXXFLAGS = -g -O0 -Wall -std=c++23
+CXXFLAGS = -O3 -march=native -Wall -std=c++23
 
 # find all .cpp files relative to current directory (src/)
 SRC = $(shell find . -name '*.cpp')
@@ -14,6 +15,9 @@ TARGET = ../chess   # executable in project root
 
 all: $(TARGET)
 
+compiledb: clean
+	@bear -- make $(TARGET)
+
 $(OBJ_DIR)/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(INCLUDE_FLAGS) -c $< -o $@
@@ -24,3 +28,4 @@ $(TARGET): $(OBJ)
 clean:
 	rm -f $(TARGET)
 	rm -rf $(OBJ_DIR)
+	rm -f compile_commands.json

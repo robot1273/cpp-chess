@@ -4,3 +4,4 @@ src/build/
 build/
 output.txt
 test.py
+compile_commands.json

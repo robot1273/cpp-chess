@@ -1,24 +1,10 @@
 #include "board.hpp"
 #include "board_precalculation.hpp"
+#include "utility.hpp"
+
 #include <vector>
 
 namespace chess{
-    inline uint64_t shift(const uint64_t b, int offset) {
-        return (offset > 0) ? (b << offset) : (b >> -offset);
-    }
-
-    static constexpr int knight_offsets[8] = {-17, -15, -10, -6, 6, 10, 15, 17};
-    static constexpr uint64_t knight_masks[8] = {
-        0x7F7F7F7F7F7F7F7FULL,
-        0xFEFEFEFEFEFEFEFEULL,
-        0x3F3F3F3F3F3F3F3FULL,
-        0xFCFCFCFCFCFCFCFCULL,
-        0x3F3F3F3F3F3F3F3FULL,
-        0xFCFCFCFCFCFCFCFCULL,
-        0x7F7F7F7F7F7F7F7FULL,
-        0xFEFEFEFEFEFEFEFEULL
-    };
-
     // squares that must be empty for castling to be legal
     static constexpr uint64_t white_kingside_castle_mask  = 0x0000000000000060;
     static constexpr uint64_t white_queenside_castle_mask = 0x000000000000000E;
@@ -26,81 +12,10 @@ namespace chess{
     static constexpr uint64_t black_kingside_castle_mask  = 0x6000000000000000;
     static constexpr uint64_t black_queenside_castle_mask = 0x0E00000000000000;
 
-    // squares that must be not attacked for queenside castling (kingside castle path == castle mask)
-    static constexpr uint64_t white_queenside_king_path   = 0x0C;
-    static constexpr uint64_t black_queenside_king_path   = 0x0C00000000000000;
-
-    /*
-      Generates a bitboard with every possible attacked square, regardless of whats on the attacked square
-      Used to efficiently identify king checks
-     */
-    uint64_t const Board::generate_all_attacks_bitboard(Colour player) {
-        uint64_t attacks = 0ULL;
-
-        uint64_t full_spaces = pieces_c[WHITE] | pieces_c[BLACK];
-
-        // -------------------------- Pawn moves -------------------------- //
-        uint64_t pawns_take_left, pawns_take_right;
-        uint64_t pawns = pieces_t[PAWN] & pieces_c[player]; //inital positions
-
-        int take_left_offset   = (player == WHITE) ? 7 : -9;
-        int take_right_offset  = (player == WHITE) ? 9 : -7;
-
-        pawns_take_left   = shift(pawns & 0xFEFEFEFEFEFEFEFEULL, take_left_offset);
-        pawns_take_right  = shift(pawns & 0x7F7F7F7F7F7F7F7FULL, take_right_offset);
-
-        attacks |= pawns_take_left | pawns_take_right; //add pawn attacks
-
-        // -------------------------- Knight moves -------------------------- //
-        uint64_t knights = pieces_t[KNIGHT] & pieces_c[player];
-
-        for (int i = 0; i < 8; i++){
-            attacks |= shift(knights, knight_offsets[i]) & knight_masks[i]; //add knight attacks
-        }
-
-        // -------------------------- Sliding moves -------------------------- //
-
-        //Helper lambda function to generate sliding moves
-        auto gen_sliding = [&](uint64_t pieces, bool is_rook) {
-            for (uint64_t board = pieces; board; board &= board - 1) { //for each straight slider
-                int square = __builtin_ctzll(board);
-
-                uint64_t mask = get_sliding_piece_mask(square, is_rook);
-                uint64_t occupancy = full_spaces & mask;
-
-                uint64_t magic = is_rook ? rook_magics[square] : bishop_magics[square];
-                int mask_bits = __builtin_popcountll(mask);
-                int index = (occupancy * magic) >> (64 - mask_bits);
-
-                uint64_t possible_moves = is_rook ? rook_attacks[square][index] : bishop_attacks[square][index];
-                attacks |= possible_moves;
-            }
-        };
-
-        uint64_t straight_sliding_pieces = (pieces_t[ROOK] | pieces_t[QUEEN]) & pieces_c[player];
-        uint64_t diagonal_sliding_pieces = (pieces_t[BISHOP] | pieces_t[QUEEN]) & pieces_c[player];
-
-        gen_sliding(straight_sliding_pieces, true);
-        gen_sliding(diagonal_sliding_pieces, false);
-
-        // -------------------------- King moves -------------------------- //
-        uint64_t king = pieces_t[KING] & pieces_c[player];
-        uint64_t a = king & 0xfefefefefefefefeULL; //prevent wraparound
-        uint64_t h = king & 0x7f7f7f7f7f7f7f7fULL;
-
-        uint64_t moves_mask = (a << 7) | (king << 8) | (h << 9) |
-                              (a >> 1) | (h << 1) |
-                              (a >> 9) | (king >> 8) | (h >> 7);
-
-        attacks |= moves_mask;
-
-        return attacks;
-    }
-
     /*
       Generates all pseudolegal moves
     */
-    std::vector<Move> const Board::generate_all_moves(Colour player) {
+    std::vector<Move> Board::generate_all_moves(Colour player) const {
         std::vector<Move> moves = {};
         moves.reserve(256);
 
@@ -117,10 +32,10 @@ namespace chess{
         int take_left_offset   = (player == WHITE) ? 7 : -9;
         int take_right_offset  = (player == WHITE) ? 9 : -7;
 
-        pawns_single_move = shift(pawns, single_move_offset) & empty_spaces;
-        pawns_double_move = shift(pawns_single_move & double_move_mask, single_move_offset) & empty_spaces;
-        pawns_take_left   = shift(pawns & 0xFEFEFEFEFEFEFEFEULL, take_left_offset) & (pieces_c[enemy] | en_passant_moves); // Can take on an imaginary en passant square
-        pawns_take_right  = shift(pawns & 0x7F7F7F7F7F7F7F7FULL, take_right_offset) & (pieces_c[enemy] | en_passant_moves);
+        pawns_single_move = utility::shift(pawns, single_move_offset) & empty_spaces;
+        pawns_double_move = utility::shift(pawns_single_move & double_move_mask, single_move_offset) & empty_spaces;
+        pawns_take_left   = utility::shift(pawns & 0xFEFEFEFEFEFEFEFEULL, take_left_offset) & (pieces_c[enemy] | en_passant_moves); // Can take on an imaginary en passant square
+        pawns_take_right  = utility::shift(pawns & 0x7F7F7F7F7F7F7F7FULL, take_right_offset) & (pieces_c[enemy] | en_passant_moves);
 
         // generate promotion moves
         uint64_t final_rank_mask = (player == WHITE) ? 0xFF00000000000000ULL : 0x00000000000000FFULL;
@@ -158,16 +73,14 @@ namespace chess{
 
         // -------------------------- Knight moves -------------------------- //
         uint64_t knights = pieces_t[KNIGHT] & pieces_c[player];
-        uint64_t knight_moves[8];
 
-        for (int i = 0; i < 8; i++){
-            knight_moves[i] = shift(knights, knight_offsets[i]) & knight_masks[i] & ~pieces_c[player];
-        }
+        for (uint64_t board = knights; board; board &= board - 1) {
+            int start_sq = __builtin_ctzll(board);
 
-        for (int i = 0; i < 8; i++){
-            for (uint64_t board = knight_moves[i]; board; board &= board - 1) {
-                int move = __builtin_ctzll(board);
-                moves.emplace_back(Move(move - knight_offsets[i], move));
+            uint64_t targets = Global::knight_masks[start_sq] & ~pieces_c[player];
+
+            for (uint64_t t_board = targets; t_board; t_board &= t_board - 1) {
+                moves.emplace_back(Move(start_sq, __builtin_ctzll(t_board)));
             }
         }
 
@@ -176,22 +89,22 @@ namespace chess{
         //Helper lambda function to generate sliding moves
         auto gen_sliding = [&](uint64_t pieces, bool is_rook) {
             for (uint64_t board = pieces; board; board &= board - 1) { //for each straight slider
-                int square = __builtin_ctzll(board);
+                int sq = __builtin_ctzll(board);
 
-                uint64_t mask = get_sliding_piece_mask(square, is_rook);
+                uint64_t mask = is_rook ? Global::rook_masks[sq] : Global::bishop_masks[sq];
                 uint64_t occupancy = full_spaces & mask;
 
-                uint64_t magic = is_rook ? rook_magics[square] : bishop_magics[square];
+                uint64_t magic = is_rook ? Global::rook_magics[sq] : Global::bishop_magics[sq];
                 int mask_bits = __builtin_popcountll(mask);
                 int index = (occupancy * magic) >> (64 - mask_bits);
 
-                uint64_t possible_moves = is_rook ? rook_attacks[square][index] : bishop_attacks[square][index];
+                uint64_t possible_moves = is_rook ? Global::rook_attacks[sq][index] : Global::bishop_attacks[sq][index];
 
                 possible_moves &= ~pieces_c[player]; //exclude friendly pieces
 
                 for (uint64_t move = possible_moves; move; move &= move - 1) { //addd the moves !
                     int target = __builtin_ctzll(move);
-                    moves.emplace_back(Move(square, target));
+                    moves.emplace_back(Move(sq, target));
                 }
             }
         };
@@ -208,20 +121,13 @@ namespace chess{
 
         int king_idx = __builtin_ctzll(king);
 
-        uint64_t a = king & 0xfefefefefefefefeULL; //prevent wraparound
-        uint64_t h = king & 0x7f7f7f7f7f7f7f7fULL;
-
-        uint64_t moves_mask = (a << 7) | (king << 8) | (h << 9) |
-                              (a >> 1) | (h << 1)    |
-                              (a >> 9) | (king >> 8) | (h >> 7);
-
-        moves_mask &= ~pieces_c[player];
+        uint64_t moves_mask = Global::king_masks[king_idx] & ~pieces_c[player];
 
         for (uint64_t board = moves_mask; board; board &= board - 1) {
             moves.emplace_back(Move(king_idx, __builtin_ctzll(board)));
         }
 
-        // Castling moves  !!
+        // -------------------------- Castling moves --------------------------
         // A castling move has start = the king square, end = the king end square
 
         bool can_castle_maybe = (player == WHITE) ? ((castling_rights & 0b1100) != 0) : ((castling_rights & 0b0011) != 0);  // Should we even bother with castling computation?
@@ -273,71 +179,63 @@ namespace chess{
 
 
     /* Checks if a king is in check in the current board state */
-    bool const Board::king_in_check(Colour player) {
+    bool Board::king_in_check(Colour player) const {
         uint64_t king_bb = pieces_t[KING] & pieces_c[player];
         return king_bb ? is_square_attacked(__builtin_ctzll(king_bb), player) : false;
     }
 
     /* Generalisation of if a square is attacked */
-    bool const Board::is_square_attacked(int sq, Colour player) {
-        uint64_t sq_bb = 1ULL << sq;
-        Colour enemy = (player == WHITE) ? BLACK : WHITE;
-        uint64_t enemy_pieces = pieces_c[enemy];
-        uint64_t full_spaces = pieces_c[WHITE] | pieces_c[BLACK];
+    bool Board::is_square_attacked(int sq, Colour player) const {
+        uint64_t enemy_pieces = pieces_c[(player == WHITE) ? BLACK : WHITE];
 
-        // 1. Knights
-        for (int i = 0; i < 8; i++) {
-            if ((shift(sq_bb, knight_offsets[i]) & knight_masks[i]) & (pieces_t[KNIGHT] & enemy_pieces)) return true;
-        }
+        // knights
+        if (Global::knight_masks[sq] & (pieces_t[KNIGHT] & enemy_pieces)) return true;
 
-        // 2. Pawns
-        uint64_t pawn_attacks = (player == WHITE)
-            ? shift(sq_bb & 0x7F7F7F7F7F7F7F7FULL, 9) | shift(sq_bb & 0xFEFEFEFEFEFEFEFEULL, 7)
-            : shift(sq_bb & 0x7F7F7F7F7F7F7F7FULL, -7) | shift(sq_bb & 0xFEFEFEFEFEFEFEFEULL, -9);
-        if (pawn_attacks & (pieces_t[PAWN] & enemy_pieces)) return true;
+        // pawns
+        int enemy_pawn_idx = (player == WHITE) ? 0 : 1;
+        if (Global::pawn_masks[enemy_pawn_idx][sq] & (pieces_t[PAWN] & enemy_pieces)) return true;
 
-        // 3. Sliders
+        // king
+        if (Global::king_masks[sq] & (pieces_t[KING] & enemy_pieces)) return true;
+
+        // sliders
         auto check_sliders = [&](bool is_rook, uint64_t attackers) {
             if (!attackers) return false;
-            uint64_t mask = get_sliding_piece_mask(sq, is_rook);
-            uint64_t occ = full_spaces & mask;
-            uint64_t magic = is_rook ? rook_magics[sq] : bishop_magics[sq];
+            uint64_t mask = is_rook ? Global::rook_masks[sq] : Global::bishop_masks[sq];
+            uint64_t occ = (pieces_c[WHITE] | pieces_c[BLACK]) & mask;
+
+            uint64_t magic = is_rook ? Global::rook_magics[sq] : Global::bishop_magics[sq];
             int index = (occ * magic) >> (64 - __builtin_popcountll(mask));
-            uint64_t attacks = is_rook ? rook_attacks[sq][index] : bishop_attacks[sq][index];
+
+            uint64_t attacks = is_rook ? Global::rook_attacks[sq][index] : Global::bishop_attacks[sq][index];
             return (attacks & attackers) != 0;
         };
 
         if (check_sliders(true, (pieces_t[ROOK] | pieces_t[QUEEN]) & enemy_pieces)) return true;
         if (check_sliders(false, (pieces_t[BISHOP] | pieces_t[QUEEN]) & enemy_pieces)) return true;
 
-        // 4. Enemy King
-        uint64_t a = sq_bb & 0xfefefefefefefefeULL;
-        uint64_t h = sq_bb & 0x7f7f7f7f7f7f7f7fULL;
-        uint64_t king_moves = (a << 7) | (sq_bb << 8) | (h << 9) | (a >> 1) | (h << 1) | (a >> 9) | (sq_bb >> 8) | (h >> 7);
-        if (king_moves & (pieces_t[KING] & enemy_pieces)) return true;
-
         return false;
     }
 
-    std::vector<Move> const Board::filter_legal_moves(const std::vector<Move>& moves, Colour player) {
+    bool Board::is_legal(const Move& move, Colour player) {
+        UndoMove undo = play_move(move); // simulate move
+        bool legal = !king_in_check(player); //check move
+        undo_move(undo); // restore state
+        return legal;
+    }
+
+    std::vector<Move> Board::generate_all_legal_moves(Colour player) {
+        std::vector<Move> moves = generate_all_moves(player);
         std::vector<Move> legal_moves;
-        legal_moves.reserve(moves.size());
+        legal_moves.reserve(256); //218 max legal moves. TODO: replace with a static array (no heap lookup)
 
         for (const Move& move : moves) {
-            UndoMove undo = play_move(move); // simulate move
-
-            if (!king_in_check(player)) { //check move
+            if (is_legal(move, player)) {
                 legal_moves.push_back(move);
             }
-
-            undo_move(undo); // restore state
         }
 
         return legal_moves;
-    }
-
-    std::vector<Move> const Board::generate_all_legal_moves(Colour player) {
-        return filter_legal_moves(generate_all_moves(player), player);
     }
 
 }

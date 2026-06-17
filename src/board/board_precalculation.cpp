@@ -1,19 +1,74 @@
 #include "board_precalculation.hpp"
+#include "utility.hpp"
 #include <vector>
+
 #include <cmath>
 #include <iostream>
 
-namespace chess
-{
-    int rook_directions[4]   = {8, -8, 1, -1};
-    int bishop_directions[4] = {9, -9, 7, -7};
+namespace chess::Global {
+    // create references
+    std::vector<uint64_t> rook_magics;
+    std::vector<uint64_t> bishop_magics;
 
-    /*
-       Makes a mask for a rook or bishop given starting position
-    */
+    std::vector<std::vector<uint64_t>> rook_attacks;
+    std::vector<std::vector<uint64_t>> bishop_attacks;
+
+    uint64_t rook_masks[64];
+    uint64_t bishop_masks[64];
+    uint64_t king_masks[64];
+    uint64_t knight_masks[64];
+    uint64_t pawn_masks[2][64];
+
+    /* initialise global constants */
+    GlobalInit::GlobalInit() {
+         std::cout << "Generating pre-computed data ..." << std::endl;
+
+        // sliding pieces
+        for (int sq = 0; sq < 64; ++sq) {
+            rook_masks[sq] = get_sliding_piece_mask(sq, true);
+            bishop_masks[sq] = get_sliding_piece_mask(sq, false);
+        }
+
+        //knights, kings and pawns
+        for (int sq = 0; sq < 64; ++sq) {
+            uint64_t sq_bb = 1ULL << sq;
+            uint64_t a = sq_bb & 0xfefefefefefefefeULL;
+            uint64_t h = sq_bb & 0x7f7f7f7f7f7f7f7fULL;
+
+            // knight moves
+            uint64_t knights = 0ULL;
+            for (int i = 0; i < 8; i++) {
+                knights |= (utility::shift(sq_bb, knight_offsets[i]) & knight_offset_masks[i]);
+            }
+            knight_masks[sq] = knights;
+
+            // king moves
+            king_masks[sq] = (a << 7) | (h << 9)  |
+                               (a >> 1) | (h << 1)  |
+                               (a >> 9) | (h >> 7)  |
+                               (sq_bb << 8) | (sq_bb >> 8);
+
+            // pawn moves (attack mask, not actually movement)
+            pawn_masks[0][sq] = (a << 7)  | (h << 9); //white
+            pawn_masks[1][sq] = (h >> 7)  | (a >> 9); //black
+        }
+
+        rook_attacks.resize(64);
+        bishop_attacks.resize(64);
+
+        rook_magics = generate_magic_numbers(true, rook_attacks, rook_masks);
+        bishop_magics = generate_magic_numbers(false, bishop_attacks, bishop_masks);
+        std::cout << "\033[1A\033[2K\r"; //erase debug line
+    };
+
+/*
+ * CODE FOR PRECOMPUTATIONS BELOW
+ */
+
+
     uint64_t get_sliding_piece_mask(int piece_idx, bool is_rook){
         uint64_t mask = 0ULL;
-        int *directions = is_rook ? rook_directions : bishop_directions;
+        const int *directions = is_rook ? rook_directions : bishop_directions;
 
         for (int i = 0; i < 4; i++){
             int direction = directions[i];
@@ -63,7 +118,7 @@ namespace chess
     */
     uint64_t get_sliding_moves(int piece_idx, uint64_t occupancy, bool is_rook) {
         uint64_t moves = 0ULL;
-        int *directions = is_rook ? rook_directions : bishop_directions;
+        const int *directions = is_rook ? rook_directions : bishop_directions;
 
         for (int i = 0; i < 4; i++){
             int direction = directions[i];
@@ -95,9 +150,10 @@ namespace chess
     /*
      * Generates all possible moves for a given square for every permutation of enemies in the way
      */
-    std::vector<uint64_t> generate_attacks_for_square(int square, bool is_rook) {
+    std::vector<uint64_t> generate_attacks_for_square(int square,
+        bool is_rook) {
         std::vector<uint64_t> attacks;
-        uint64_t moves_mask = get_sliding_piece_mask(square, is_rook);
+        uint64_t moves_mask = is_rook ? rook_masks[square] : bishop_masks[square];
         int max_occupancy_n = (1 << __builtin_popcountll(moves_mask));
 
         for (int occupancy_n = 0; occupancy_n < max_occupancy_n; occupancy_n++){
@@ -120,12 +176,15 @@ namespace chess
      * Returns a vector of length 64 for a magic number for each tile
      * Sets the attack table to the corresponding values for these magic numbers, modifying it
      */
-    std::vector<uint64_t> generate_magic_numbers(bool is_rook, std::vector<std::vector<uint64_t>>& attack_table){
+    std::vector<uint64_t> generate_magic_numbers(bool is_rook,
+        std::vector<std::vector<uint64_t>>& attack_table,
+        const uint64_t* masks){
+
         int max_iterations = 100000000;
         std::vector<uint64_t> magics;
 
         for (int sq = 0; sq < 64; sq++){
-            uint64_t mask = get_sliding_piece_mask(sq, is_rook);
+            uint64_t mask = masks[sq];
             std::vector<uint64_t> attacks = generate_attacks_for_square(sq, is_rook);
 
             int mask_bits = __builtin_popcountll(mask);

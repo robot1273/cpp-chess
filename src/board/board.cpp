@@ -1,13 +1,16 @@
 #include "board.hpp"
+#include "enums.hpp"
 #include "move.hpp"
 #include "utility.hpp"
 #include "board_precalculation.hpp"
 
 #include <iostream>
+#include <stdexcept>
 
 namespace chess{
-    Board::Board(){
-        //Initialise board state
+    /* Reset board state to starting position
+     */
+    void Board::reset() {
         pieces_t[PAWN]   = 0x00FF00000000FF00;
         pieces_t[KNIGHT] = 0x4200000000000042;
         pieces_t[BISHOP] = 0x2400000000000024;
@@ -18,27 +21,27 @@ namespace chess{
         pieces_c[WHITE]  = 0x000000000000FFFF;
         pieces_c[BLACK]  = 0xFFFF000000000000;
 
-        rook_attacks.resize(64);
-        bishop_attacks.resize(64);
-
-        // TODO: make a global pre-calculation instead of a per-instance calculation
-        std::cout << "Generating magic numbers (wait a few seconds) ..." << std::endl;
-
-        rook_magics = generate_magic_numbers(true, rook_attacks);
-        bishop_magics = generate_magic_numbers(false, bishop_attacks);
-
-        std::cout << "\033[1A\033[2K\r"; //erase debug line
+        en_passant_moves = 0ULL;
+        castling_rights = 0b1111;
+        current_turn = Colour::WHITE;
     }
 
-    Piece const Board::get_piece_type(int idx){
-        for (int i = 0; i < 6; i++){
-            if (utility::readBit(pieces_t[i], idx)) { return Piece(i); }
+    Board::Board(){
+        reset(); //setup initial board state
+    }
+
+    Piece Board::get_piece_type(int idx) const {
+        uint64_t mask = 1ULL << idx;
+        for (int i = 0; i < 6; i++) {
+            if (pieces_t[i] & mask) return Piece(i);
         }
         return NONE;
     }
 
-    Colour const Board::get_piece_colour(int idx){
-        return utility::readBit(pieces_c[WHITE], idx) ? WHITE : BLACK;
+    Colour Board::get_piece_colour(int idx) const {
+        if ((pieces_c[WHITE] >> idx) & 1ULL) return WHITE;
+        if ((pieces_c[BLACK] >> idx) & 1ULL) return BLACK;
+        return NO_COLOUR;
     }
 
     // for rook position detection
@@ -58,9 +61,13 @@ namespace chess{
         }
 
         Piece piece_type = get_piece_type(start);
-        if (piece_type == NONE) { return UndoMove(move, NONE, en_passant_moves, castling_rights); } // no piece found, end early
-
+        if (piece_type == NONE) { return {move, NONE, en_passant_moves, castling_rights}; } // no piece found, end early
         Colour piece_colour = get_piece_colour(start);
+
+        if (piece_colour == NO_COLOUR) {
+            utility::print_stacktrace();
+            throw std::runtime_error("square has no piece to read colour from");
+        }
 
         uint8_t old_castling_rights = castling_rights; //Save old data to give to undo
         uint64_t old_en_passant = en_passant_moves;
@@ -68,11 +75,11 @@ namespace chess{
         // Update castling rights
         if (piece_type == ROOK) { // If you ever move a rook
             if (piece_colour == WHITE) {
-                if (start == BOTTOM_RIGHT_IDX) castling_rights &= ~0b0100;
+                if (start == BOTTOM_RIGHT_IDX)     castling_rights &= ~0b0100;
                 else if (start == BOTTOM_LEFT_IDX) castling_rights &= ~0b1000;
             } else {
-                if (start == TOP_RIGHT_IDX) castling_rights &= ~0b0010;
-                else if (start == TOP_LEFT_IDX) castling_rights &= ~0b0001;
+                if (start == TOP_RIGHT_IDX)        castling_rights &= ~0b0001;
+                else if (start == TOP_LEFT_IDX)    castling_rights &= ~0b0010;
             }
         } else if (piece_type == KING) { // If you ever move a king
             if (piece_colour == WHITE) { castling_rights &= ~0b1100;} // Remove white's castling rights
@@ -82,17 +89,20 @@ namespace chess{
         // start is the king start position, end is king final position
 
         if (flag == CASTLE_KINGSIDE || flag == CASTLE_QUEENSIDE) { // Move the king if castling
-
-            uint64_t king_mask = (1ULL << start) | (1ULL << end);
             uint64_t rook_mask;
+            int king_dest;
 
             if (flag == CASTLE_KINGSIDE){  // Get rook move mask
-                int rook_idx = (piece_colour == WHITE) ? 7 : 63;
+                king_dest = (piece_colour == WHITE) ? 6 : 62; // g1 or g8
+                int rook_idx = (piece_colour == WHITE) ? BOTTOM_RIGHT_IDX : TOP_RIGHT_IDX;
                 rook_mask = (1ULL << rook_idx) | (1ULL << (rook_idx - 2)); //Shift rook to the left 2x
-            } else if (flag == CASTLE_QUEENSIDE) {
-                int rook_idx = (piece_colour == WHITE) ? 0 : 56;
+            } else {
+                king_dest = (piece_colour == WHITE) ? 2 : 58; // c1 or c8
+                int rook_idx = (piece_colour == WHITE) ? BOTTOM_LEFT_IDX : TOP_LEFT_IDX;
                 rook_mask = (1ULL << rook_idx) | (1ULL << (rook_idx + 3)); //Shift rook to the right 3x
             }
+
+            uint64_t king_mask = (1ULL << start) | (1ULL << king_dest);
 
             pieces_t[KING] ^= king_mask; //Move king
             pieces_c[piece_colour] ^= king_mask;
@@ -100,7 +110,8 @@ namespace chess{
             pieces_t[ROOK] ^= rook_mask; //Move rook
             pieces_c[piece_colour] ^= rook_mask;
 
-            return {move, NONE, en_passant_moves, old_castling_rights};
+            en_passant_moves = 0ULL; // make sure no en passant move is possible
+            return {move, NONE, old_en_passant, old_castling_rights};
         }
 
 
@@ -118,10 +129,10 @@ namespace chess{
 
             // if we moved to a corner, remove castling rights
             switch (end) {
-                case 0:  castling_rights &= ~0b1000; break; // white queenside
-                case 7:  castling_rights &= ~0b0100; break; // white kingside
-                case 56: castling_rights &= ~0b0001; break; // black queenside
-                case 63: castling_rights &= ~0b0010; break; // black kingside
+                case BOTTOM_LEFT_IDX:  castling_rights &= ~0b1000; break; // white queenside
+                case BOTTOM_RIGHT_IDX: castling_rights &= ~0b0100; break; // white kingside
+                case TOP_LEFT_IDX:     castling_rights &= ~0b0010; break; // black queenside
+                case TOP_RIGHT_IDX:    castling_rights &= ~0b0001; break; // top right
             }
         }
 
@@ -165,17 +176,20 @@ namespace chess{
 
         // Undo castling moves
         if (flag == CASTLE_KINGSIDE || flag == CASTLE_QUEENSIDE) { // Move the king if castling
-            uint64_t king_mask = (1ULL << start) | (1ULL << end);
             uint64_t rook_mask;
+            int king_dest;
 
             if (flag == CASTLE_KINGSIDE){  // Get rook move mask
-                int rook_idx = (mover_colour == WHITE) ? 7 : 63;
+                king_dest = (mover_colour == WHITE) ? 6 : 62; // g1 or g8
+                int rook_idx = (mover_colour == WHITE) ? BOTTOM_RIGHT_IDX : TOP_RIGHT_IDX;
                 rook_mask = (1ULL << rook_idx) | (1ULL << (rook_idx - 2)); //Shift rook to the left 2x
-            } else if (flag == CASTLE_QUEENSIDE) {
-                int rook_idx = (mover_colour == WHITE) ? 0 : 56;
+            } else {
+                king_dest = (mover_colour == WHITE) ? 2 : 58; // c1 or c8
+                int rook_idx = (mover_colour == WHITE) ? BOTTOM_LEFT_IDX : TOP_LEFT_IDX;
                 rook_mask = (1ULL << rook_idx) | (1ULL << (rook_idx + 3)); //Shift rook to the right 3x
             }
 
+            uint64_t king_mask = (1ULL << start) | (1ULL << king_dest);
 
             pieces_t[KING] ^= king_mask; //Move king
             pieces_c[mover_colour] ^= king_mask;
@@ -199,7 +213,7 @@ namespace chess{
         //restore pawn taken by en passant (captured piece should be NONE)
         if (flag == MoveFlag::EN_PASSANT && moving_piece == PAWN) {
             uint64_t captured_square = (mover_colour == WHITE) ? (1ULL << (end - 8)) : (1ULL << (end + 8));
-            pieces_t[PAWN] |= captured_square; // restore taken pawn
+            pieces_t[PAWN] ^= captured_square; // restore taken pawn
             pieces_c[mover_colour == WHITE ? BLACK : WHITE] |= captured_square;
         }
 
@@ -212,7 +226,7 @@ namespace chess{
     };
 
     // simple I/O
-    void Board::display_board() {
+    void Board::display_board() const {
         for (int rank = 7; rank >= 0; rank--) {
             for (int file = 0; file < 8; file++) {
                 int idx = rank * 8 + file;

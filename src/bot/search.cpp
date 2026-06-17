@@ -2,18 +2,18 @@
 
 #include "./board/board.hpp"
 #include "evaluation.hpp"
+#include "move.hpp"
 
 #include <algorithm>
 #include <limits>
 #include <random>
-#include <iostream>
 
 namespace chess{
     float infinity = std::numeric_limits<float>::infinity();
 
     float minimax(Board& board, Colour player, int depth){
-        if (depth == 0) { return mobility_eval(board); }
-        
+        if (depth == 0) { return naiive_eval(board); }
+
         float value = (player == WHITE) ? -infinity : infinity;
 
         for (Move move : board.generate_all_legal_moves(player)){
@@ -22,7 +22,7 @@ namespace chess{
                 value = std::max(value, minimax(board, BLACK, depth-1));
             } else{
                 value = std::min(value, minimax(board, WHITE, depth-1));
-            } 
+            }
             board.undo_move(undo);
         }
         return value;
@@ -54,9 +54,9 @@ namespace chess{
 
     Move find_random_move(Board& board, Colour player) {
         std::vector<Move> moves = board.generate_all_legal_moves(player);
-        if (moves.empty()) throw std::runtime_error("No moves");
+        if (moves.empty()) return Move{};
 
         std::uniform_int_distribution<> distrib(0, moves.size() - 1);
         return moves[distrib(global_gen())];
     }
-} 
+}
