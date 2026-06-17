@@ -2,7 +2,6 @@
 #include "enums.hpp"
 #include "move.hpp"
 #include "utility.hpp"
-#include "board_precalculation.hpp"
 
 #include <iostream>
 #include <stdexcept>
@@ -146,7 +145,7 @@ namespace chess{
             pieces_c[piece_colour == WHITE ? BLACK : WHITE] ^= captured_space;
         } else if (isPromotion(flag)) { // Promotion
             pieces_t[PAWN] ^= end_mask;  // clear from pawn bitboard
-            pieces_t[Piece(flag - 1)] |= end_mask; //promotion_flag - 1 = corresponding piece
+            pieces_t[Piece(flag - 1)] ^= end_mask; //promotion_flag - 1 = corresponding piece
         }
 
         en_passant_moves = 0ULL; //Reset en passant squares after a move is played
@@ -201,7 +200,7 @@ namespace chess{
         }
 
         if (isPromotion(flag)){ // first check if move was a promotion
-            pieces_t[PAWN] |= end_mask; // add back to pawn mask
+            pieces_t[PAWN] ^= end_mask; // add back to pawn mask
             pieces_t[moving_piece] ^= end_mask; // remove original piece type
             moving_piece = PAWN; //set piece type to pawn
         }
@@ -214,7 +213,7 @@ namespace chess{
         if (flag == MoveFlag::EN_PASSANT && moving_piece == PAWN) {
             uint64_t captured_square = (mover_colour == WHITE) ? (1ULL << (end - 8)) : (1ULL << (end + 8));
             pieces_t[PAWN] ^= captured_square; // restore taken pawn
-            pieces_c[mover_colour == WHITE ? BLACK : WHITE] |= captured_square;
+            pieces_c[mover_colour == WHITE ? BLACK : WHITE] ^= captured_square;
         }
 
         if (captured_piece != NONE) { // restore the old piece

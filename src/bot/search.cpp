@@ -12,15 +12,16 @@ namespace chess{
     float infinity = std::numeric_limits<float>::infinity();
 
     float minimax(Board& board, Colour player, int depth){
-        if (depth == 0) { return naiive_eval(board); }
+        if (depth == 0) { return mobility_eval(board); }
 
         float value = (player == WHITE) ? -infinity : infinity;
 
-        for (Move move : board.generate_all_legal_moves(player)){
+        auto moves = board.generate_all_legal_moves(player);
+        for (const Move& move : moves) {
             UndoMove undo = board.play_move(move);
             if (player == WHITE){
                 value = std::max(value, minimax(board, BLACK, depth-1));
-            } else{
+            } else {
                 value = std::min(value, minimax(board, WHITE, depth-1));
             }
             board.undo_move(undo);

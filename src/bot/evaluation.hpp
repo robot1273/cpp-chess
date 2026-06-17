@@ -5,6 +5,5 @@
 namespace chess{
     /* Super simple eval function that only considers material value */
     float naiive_eval(const Board &board);
-
-    float mobility_eval(const Board &board);
+    float mobility_eval(Board &board);
 }
