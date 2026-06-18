@@ -3,8 +3,10 @@
 #include "move.hpp"
 #include "utility.hpp"
 
+#include <cstdint>
 #include <iostream>
 #include <stdexcept>
+#include "board_precalculation.hpp"
 
 namespace chess{
     /* Reset board state to starting position
@@ -23,10 +25,89 @@ namespace chess{
         en_passant_moves = 0ULL;
         castling_rights = 0b1111;
         current_turn = Colour::WHITE;
+
+        current_hash = generate_zobrist_hash(current_turn);
     }
 
     Board::Board(){
         reset(); //setup initial board state
+    }
+
+    // returns 0-5 for white pieces, 6-11 black pieces and -1 for none
+    int Board::get_zobrist_piece_index(int square) const {
+        Piece p = get_piece_type(square);
+        Colour c = get_piece_colour(square);
+        return get_zobrist_piece_index(p, c);
+    }
+
+    int Board::get_zobrist_piece_index(Piece p, Colour c) const {
+        if (p == NONE) return -1; // allow c no colour to pass (error should raise)
+        return static_cast<int>(p) + 6 * static_cast<int>(c);
+    }
+
+    uint64_t Board::generate_zobrist_hash(Colour player_to_move) const {
+        uint64_t hash = 0;
+
+        for (int sq = 0; sq < 64; sq++) {
+            int idx = get_zobrist_piece_index(sq);
+            if (idx != -1) {
+                hash ^= Global::zobrist_piece_keys[sq][idx];
+            }
+        }
+
+        if (player_to_move == BLACK) {
+            hash ^= Global::zobrist_player_turn_key;
+        }
+
+        return hash;
+    }
+
+    void Board::update_zobrist_hash(const Move& move) {
+        int start = move.start();
+        int end = move.end();
+        MoveFlag flag = move.flag();
+        Colour player = get_piece_colour(start);
+        auto& ZOBRIST_KEYS = Global::zobrist_piece_keys;
+
+        int moving_piece_idx = get_zobrist_piece_index(start);
+        current_hash ^= ZOBRIST_KEYS[start][moving_piece_idx];
+
+        if (isPromotion(flag)) { // handle promotion
+            Piece promotion_piece = promotionPiece(flag);
+            int promotion_piece_idx = get_zobrist_piece_index(promotion_piece, player);
+            current_hash ^= ZOBRIST_KEYS[end][promotion_piece_idx];
+        } else { // non-promotion move
+            current_hash ^= ZOBRIST_KEYS[end][moving_piece_idx];
+        }
+
+        // handle capture
+        int capture_square = (flag == EN_PASSANT) ? end + (player == WHITE ? -8 : 8) : end;
+        int captured_piece_idx = get_zobrist_piece_index(capture_square);
+
+        if (captured_piece_idx != -1) { // if capture
+            current_hash ^= ZOBRIST_KEYS[capture_square][captured_piece_idx];
+        }
+
+        // king move is sorted but we also need to handle the rook move
+        if (flag == CASTLE_KINGSIDE || flag == CASTLE_QUEENSIDE) {
+            int rook_start = 0;
+            int rook_end = 0;
+
+            if (flag == CASTLE_KINGSIDE) {
+                rook_start = (player == WHITE) ? 7 : 63;
+                rook_end = rook_start - 2;
+            } else {
+                rook_start = (player == WHITE) ? 0 : 56;
+                rook_end = rook_start + 3;
+            }
+
+            int rook_idx = get_zobrist_piece_index(rook_start);
+            current_hash ^= ZOBRIST_KEYS[rook_start][rook_idx];
+            current_hash ^= ZOBRIST_KEYS[rook_end][rook_idx];
+        }
+
+        // swap turn
+        current_hash ^= Global::zobrist_player_turn_key;
     }
 
     Piece Board::get_piece_type(int idx) const {
@@ -60,6 +141,20 @@ namespace chess{
         }
 
         Piece piece_type = get_piece_type(start);
+        Piece captured_piece = get_piece_type(end);
+
+        // draw conditions and hash
+        game_state_stack.push_back({current_hash, half_move_counter}); // push current hash onto stack
+        update_zobrist_hash(move); //update hash before board state changes
+
+        current_turn = (current_turn == Colour::WHITE) ? Colour::BLACK : Colour::WHITE;
+
+        if (captured_piece != NONE || piece_type == PAWN) {
+            half_move_counter = 0;
+        } else {
+            half_move_counter++;
+        }
+
         if (piece_type == NONE) { return {move, NONE, en_passant_moves, castling_rights}; } // no piece found, end early
         Colour piece_colour = get_piece_colour(start);
 
@@ -120,7 +215,6 @@ namespace chess{
         uint64_t full_mask  = start_mask | end_mask;
 
         // handle capturing pieces
-        Piece captured_piece = get_piece_type(end);
         if (captured_piece != NONE){
             Colour captured_colour = get_piece_colour(end);
             pieces_t[captured_piece] ^= end_mask;
@@ -173,6 +267,18 @@ namespace chess{
         uint64_t end_mask = (1ULL << end);
         uint64_t full_mask = start_mask | end_mask;
 
+        current_turn = (current_turn == Colour::WHITE) ? Colour::BLACK : Colour::WHITE;
+
+        try {
+            // undo state
+            const GameState& previous_state = game_state_stack.back();
+            current_hash = previous_state.hash;
+            half_move_counter = previous_state.half_move_counter;
+            game_state_stack.pop_back();
+        } catch (const std::out_of_range& e) {
+            throw std::runtime_error("tried to undo move when no previous move was played");
+        }
+
         // Undo castling moves
         if (flag == CASTLE_KINGSIDE || flag == CASTLE_QUEENSIDE) { // Move the king if castling
             uint64_t rook_mask;
@@ -223,6 +329,45 @@ namespace chess{
         }
 
     };
+
+    bool Board::insufficient_material() const {
+        if (pieces_t[PAWN] || pieces_t[ROOK] || pieces_t[QUEEN]) { return false; } //always possible to mate
+
+        int knights = __builtin_popcountll(pieces_t[KNIGHT]);
+        int bishops = __builtin_popcountll(pieces_t[BISHOP]);
+        int total_minors = knights + bishops;
+
+        if (total_minors == 0) { return true; } // king v king
+
+        if (total_minors == 1) { return true; } // knight or bishop vs king
+
+        if (knights == 0 && bishops == 2) { // 2 bishops game, need to check square colors
+            uint64_t white_squares = 0xAA55AA55AA55AA55ULL;
+            bool white_bishop_on_light = pieces_t[BISHOP] & pieces_c[WHITE] & white_squares;
+            bool black_bishop_on_light = pieces_t[BISHOP] & pieces_c[BLACK] & white_squares;
+
+            if (white_bishop_on_light == black_bishop_on_light) { return true; } // if both on light or dark then cant mate
+        }
+
+        return false;
+    }
+
+    bool Board::is_draw() const {
+        if (half_move_counter >= 100) { return true; } // 50 move rule draw
+        if (half_move_counter < 4) { return false; }   // impossible for repetition draw
+        if (insufficient_material()) { return true; }  // insufficient material draw
+
+        // 3-fold repetition draw
+        int stack_size = game_state_stack.size();
+        int limit = (stack_size > half_move_counter) ? (stack_size - half_move_counter) : 0;
+
+        // look only as far as the counter allows
+        for (int i = stack_size - 2; i >= limit; i -= 2) {
+            if (game_state_stack[i].hash == current_hash) return true;
+        }
+
+        return false;
+    }
 
     // simple I/O
     void Board::display_board() const {

@@ -29,3 +29,7 @@ clean:
 	rm -f $(TARGET)
 	rm -rf $(OBJ_DIR)
 	rm -f compile_commands.json
+
+run:
+	make
+	../chess

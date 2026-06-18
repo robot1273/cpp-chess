@@ -18,6 +18,14 @@ namespace chess::utility {
         return (offset > 0) ? (b << offset) : (b >> -offset);
     }
 
+    extern inline uint64_t random_u64() {
+        static uint64_t x = 127369420ULL;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        return x;
+    }
+
     void print_bitboard(uint64_t &board);
     void print_bitboard_solid(uint64_t &board);
 

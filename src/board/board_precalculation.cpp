@@ -19,9 +19,20 @@ namespace chess::Global {
     uint64_t knight_masks[64];
     uint64_t pawn_masks[2][64];
 
+    uint64_t zobrist_piece_keys[64][zobrist_key_length];
+    uint64_t zobrist_player_turn_key;
+
     /* initialise global constants */
     GlobalInit::GlobalInit() {
          std::cout << "Generating pre-computed data ..." << std::endl;
+
+         // zobrist hash keys
+         for (int sq = 0; sq < 64; ++sq) {
+             for (int piece = 0; piece < zobrist_key_length; ++piece) {
+                 zobrist_piece_keys[sq][piece] = utility::random_u64();
+             }
+         }
+         zobrist_player_turn_key = utility::random_u64();
 
         // sliding pieces
         for (int sq = 0; sq < 64; ++sq) {
@@ -164,14 +175,6 @@ namespace chess::Global {
         return attacks;
     }
 
-    uint64_t random_u64() {
-        static uint64_t x = 127369420ULL;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        return x;
-    }
-
     /**
      * Returns a vector of length 64 for a magic number for each tile
      * Sets the attack table to the corresponding values for these magic numbers, modifying it
@@ -196,7 +199,7 @@ namespace chess::Global {
             std::vector<bool> has_been_used(max_occupancy_n);
 
             for (int i = 0; i < max_iterations; i++){
-                uint64_t magic = random_u64() & random_u64() & random_u64(); //sparse magic number
+                uint64_t magic = utility::random_u64() & utility::random_u64() & utility::random_u64(); //sparse magic number
                 if (__builtin_popcountll((mask * magic) & 0xFF00000000000000ULL) < 8) { continue; } // skip magics that dont use upper bits
                 std::fill(has_been_used.begin(), has_been_used.end(), false); //reset used moves
                 bool failed_iteration = false;

@@ -21,6 +21,10 @@ namespace chess {
         return (flag >= MoveFlag::PROMOTE_KNIGHT && flag <= MoveFlag::PROMOTE_QUEEN);
     }
 
+    inline Piece promotionPiece(MoveFlag flag){ // assumes flag is a promotion flag
+        return static_cast<Piece>(static_cast<int>(flag) - 1);
+    }
+
     struct Move{
         uint16_t move = 0;
         Move() {move = NULL_MOVE << 12;}

@@ -238,4 +238,23 @@ namespace chess{
         return legal_moves;
     }
 
+    std::vector<Move> Board::generate_all_legal_capture_moves(Colour player) {
+        std::vector<Move> moves = generate_all_moves(player);
+        std::vector<Move> legal_capture_moves;
+        legal_capture_moves.reserve(256);
+
+        Colour enemy = (player == WHITE) ? BLACK : WHITE;
+
+        for (const Move& move : moves) {
+            // first check if capture
+            if (get_piece_colour(move.end()) == enemy) {
+                if (is_legal(move, player)) {
+                    legal_capture_moves.push_back(move);
+                }
+            }
+        }
+
+        return legal_capture_moves;
+    }
+
 }

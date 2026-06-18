@@ -2,8 +2,8 @@
 #include <chrono>
 #include <iostream>
 #include "board.hpp"
+#include "enums.hpp"
 #include "search.hpp"
-#include "evaluation.hpp"
 
 int main() {
     chess::Board board;
@@ -12,27 +12,38 @@ int main() {
     int i = 0;
     double total_time = 0;
 
-    int seed = 2;
+    int seed = -1;
     chess::set_global_seed(seed);
 
-    int max_depth = 4;
+    // 0 = random moves
+    int white_bot_depth = 6;
+    int black_bot_depth = 5;
 
     while (true) {
-        chess::Colour player = chess::Colour(i % 2);
+        // zobrist hash sanity check
+        chess::Colour player = board.get_current_player();
+        uint64_t hash = board.generate_zobrist_hash(player);
+        if (hash != board.get_current_hash()) {
+            std::cout << "HASH MISMATCH :( " << std::endl;
+        }
+
+        std::string strplayer = (player == chess::WHITE) ? "WHITE" : "BLACK";
+        std::cout << strplayer << " to play" << std::endl;
         std::cout << "Press Enter to play next move...\n";
         std::cin.get();
-
-        if (max_depth == 0) {
-            volatile auto _ = chess::find_random_move(board, player); //warmup
-        }
+        std::cout << "\033[1A\033[2K\r"; //erase whitespace
 
         chess::Move move;
+
         auto start_time = std::chrono::high_resolution_clock::now();
-        if (max_depth == 0) {
+
+        int depth = (player == chess::WHITE) ? white_bot_depth : black_bot_depth;
+        if (depth == 0) {
             move = chess::find_random_move(board, player);
         } else {
-            move = chess::find_best_move(board, player, max_depth);
+            move = chess::find_best_move(board, player, depth);
         }
+
         auto end_time = std::chrono::high_resolution_clock::now();
 
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
@@ -41,19 +52,35 @@ int main() {
         std::cout << "Generation took " << duration.count() << " microseconds." << std::endl;
         std::cout << "Current average: " << total_time/(i+1) << " microseconds." << std::endl;
 
+        board.display_board();
+        std::cout << std::endl;
+
         if (!(move.flag() == chess::MoveFlag::NULL_MOVE)){
             std::string uci = chess::moveToUCI(move);
             std::cout << "Move played: " << uci << std::endl;
             board.play_move(move);
-
         } else {
-            std::cout << "No valid moves"  << std::endl;
+            if (board.king_in_check(chess::BLACK)) {
+                std::cout << "Checkmate, WHITE wins" << std::endl;
+                return 0;
+            } else if (board.king_in_check(chess::WHITE)) {
+                std::cout << "Checkmate, BLACK wins" << std::endl;
+                return 0;
+            } else {
+                std::cout << "fatal error, no moves..." << std::endl;
+                if (chess::find_random_move(board, player).flag() == chess::MoveFlag::NULL_MOVE) {
+                    std::cout << "really fucking bad error !!! move gen is broken" << std::endl;
+                    return 1;
+                }
+                return 1;
+            }
+        }
+
+        if (board.is_draw()) {
+            std::cout << "Draw" << std::endl;
             return 0;
         }
 
-        board.display_board();
-        std::cout << "Evaluation: " << chess::mobility_eval(board) << std::endl;
-        std::cout << std::endl;
         i++;
     }
 
