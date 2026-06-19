@@ -55,9 +55,9 @@ namespace chess::Global {
 
             // king moves
             king_masks[sq] = (a << 7) | (h << 9)  |
-                               (a >> 1) | (h << 1)  |
-                               (a >> 9) | (h >> 7)  |
-                               (sq_bb << 8) | (sq_bb >> 8);
+                             (a >> 1) | (h << 1)  |
+                             (a >> 9) | (h >> 7)  |
+                             (sq_bb << 8) | (sq_bb >> 8);
 
             // pawn moves (attack mask, not actually movement)
             pawn_masks[0][sq] = (a << 7)  | (h << 9); //white
@@ -75,7 +75,6 @@ namespace chess::Global {
 /*
  * CODE FOR PRECOMPUTATIONS BELOW
  */
-
 
     uint64_t get_sliding_piece_mask(int piece_idx, bool is_rook){
         uint64_t mask = 0ULL;

@@ -82,4 +82,18 @@ namespace chess {
 
         return Move(start, end, flag);
     }
+
+    inline bool is_valid_UCI_string(const std::string& uci) {
+        if (uci.length() < 4 || uci.length() > 5) return false;
+        if (uci[0] < 'a' || uci[0] > 'h') return false;
+        if (uci[1] < '1' || uci[1] > '8') return false;
+        if (uci[2] < 'a' || uci[2] > 'h') return false;
+        if (uci[3] < '1' || uci[3] > '8') return false;
+        if (uci.length() == 5) {
+            char p = std::tolower(uci[4]);
+            if (p != 'n' && p != 'b' && p != 'r' && p != 'q') return false;
+        }
+
+        return true;
+    }
 }

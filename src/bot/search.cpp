@@ -7,10 +7,14 @@
 
 #include <algorithm>
 #include <random>
+#include <iostream>
 
 namespace chess{
     constexpr int infinity = 1000067;
-    constexpr int draw_penalty = 1000; //positive
+    constexpr int draw_penalty = 10; //positive
+    constexpr int max_quiescence_depth = 15;
+
+    uint64_t nodes_evaluated = 0;
 
     inline int mvv_lva_score(const Move& m, const Board& board) {
         int to = m.end();
@@ -32,9 +36,11 @@ namespace chess{
         }
     };
 
-    int quiescence(Board& board, int alpha, int beta, Colour player) {
-        int static_eval = naiive_eval(board, player);
+    int quiescence(Board& board, int alpha, int beta, Colour player, int depth = 0) {
+        nodes_evaluated++;
+        if (depth == 0 || depth >= max_quiescence_depth) { return eval(board, player); }
 
+        int static_eval = eval(board, player);
         int best_eval = static_eval;
         if (best_eval >= beta) { return beta; }
         if (best_eval > alpha) { alpha = best_eval; }
@@ -45,7 +51,7 @@ namespace chess{
 
         for (const Move& move : moves) {
             UndoMove undo = board.play_move(move);
-            int eval = -quiescence(board, -beta, -alpha, enemy);
+            int eval = -quiescence(board, -beta, -alpha, enemy, depth+1);
             board.undo_move(undo);
 
             if (eval > best_eval) { best_eval = eval; }
@@ -56,8 +62,8 @@ namespace chess{
         return best_eval;
     }
 
-    // white = maximizer, black = minimizer
     int negamax(Board& board, Colour player, int depth, int alpha, int beta, int moves_made){
+        nodes_evaluated++;
         if (depth == 0) { return quiescence(board, alpha, beta, player); }
         if (board.is_draw()) { return -draw_penalty; } // make a draw slightly undesirable
 
@@ -66,7 +72,7 @@ namespace chess{
             if (board.king_in_check(player)) {
                 return -100000 + moves_made; // checkmate in depth moves
             }
-            return 0;  // stalemate
+            return -draw_penalty;  // stalemate
         }
 
         std::sort(moves.begin(), moves.end(), MVVLVAMoveOrder{board});
@@ -111,6 +117,7 @@ namespace chess{
             alpha = std::max(alpha, eval);
         }
 
+        std::cout << "Eval: " << best_eval << std::endl;
         return best_move;
     }
 

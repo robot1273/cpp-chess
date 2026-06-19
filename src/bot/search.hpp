@@ -3,6 +3,8 @@
 #include <random>
 
 namespace chess{
+    extern uint64_t nodes_evaluated;
+
     int negamax(Board& board, Colour player, int depth, float alpha, float beta, int moves_made);
     Move find_best_move(Board &board, Colour player, int depth);
     Move find_random_move(Board &board, Colour player);
