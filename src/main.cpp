@@ -1,24 +1,24 @@
 #include "run.hpp"
 
-// 0 - > terminal play
-// 1 - > cutechess
-// 2 - > benchmark
 enum Process {
-    TERMINAL_PLAY,
-    CUTECHESS,
-    BENCHMARK
+    TERMINAL_PLAY,  // play in-terminal
+    CUTECHESS,      // cutechess binary
+    BENCHMARK,      // benchmark bot performance
+    PERFT,          // benchmark and test suite for engine performance
 };
 
-Process process = Process::CUTECHESS;
+Process process = CUTECHESS;
 
 int main() {
     switch (process) {
-        case 0:
+        case TERMINAL_PLAY:
             return terminal_play();
-        case 1:
+        case CUTECHESS:
             return CuteChessAPI::run();
-        case 2:
-            return benchmark(7);
+        case BENCHMARK:
+            return benchmark(8);
+        case PERFT:
+            return run_perft();
         default:
             return 1;
     }

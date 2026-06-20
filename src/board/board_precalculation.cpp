@@ -24,8 +24,6 @@ namespace chess::Global {
 
     /* initialise global constants */
     GlobalInit::GlobalInit() {
-         std::cout << "Generating pre-computed data ..." << std::endl;
-
          // zobrist hash keys
          for (int sq = 0; sq < 64; ++sq) {
              for (int piece = 0; piece < zobrist_key_length; ++piece) {
@@ -69,7 +67,6 @@ namespace chess::Global {
 
         rook_magics = generate_magic_numbers(true, rook_attacks, rook_masks);
         bishop_magics = generate_magic_numbers(false, bishop_attacks, bishop_masks);
-        std::cout << "\033[1A\033[2K\r"; //erase debug line
     };
 
 /*

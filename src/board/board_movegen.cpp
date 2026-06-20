@@ -15,10 +15,7 @@ namespace chess{
     /*
       Generates all pseudolegal moves
     */
-    std::vector<Move> Board::generate_all_moves(Colour player) const {
-        std::vector<Move> moves = {};
-        moves.reserve(256);
-
+    void Board::generate_all_moves(Colour player, MoveList& moves) const {
         uint64_t full_spaces = pieces_c[WHITE] | pieces_c[BLACK];
         uint64_t empty_spaces = ~full_spaces;
         Colour enemy = (player == WHITE) ? BLACK : WHITE;
@@ -48,20 +45,20 @@ namespace chess{
 
             for (uint64_t board = regular_moves; board; board &= board - 1) { //non-promoting moves
                 int move = __builtin_ctzll(board);
-                moves.emplace_back(Move(move - offset, move, MoveFlag::NONE_FLAG));
+                moves.push_back(Move(move - offset, move, MoveFlag::NONE_FLAG));
             }
 
             for (uint64_t board = promoting_moves; board; board &= board - 1) { //promoting moves
                 int move = __builtin_ctzll(board);
-                moves.emplace_back(Move(move - offset, move, MoveFlag::PROMOTE_QUEEN));
-                moves.emplace_back(Move(move - offset, move, MoveFlag::PROMOTE_ROOK));
-                moves.emplace_back(Move(move - offset, move, MoveFlag::PROMOTE_BISHOP));
-                moves.emplace_back(Move(move - offset, move, MoveFlag::PROMOTE_KNIGHT));
+                moves.push_back(Move(move - offset, move, MoveFlag::PROMOTE_QUEEN));
+                moves.push_back(Move(move - offset, move, MoveFlag::PROMOTE_ROOK));
+                moves.push_back(Move(move - offset, move, MoveFlag::PROMOTE_BISHOP));
+                moves.push_back(Move(move - offset, move, MoveFlag::PROMOTE_KNIGHT));
             }
 
             for (uint64_t board = en_passant_captures; board; board &= board - 1) { //en passant captures
                 int move = __builtin_ctzll(board);
-                moves.emplace_back(Move(move - offset, move, MoveFlag::EN_PASSANT));
+                moves.push_back(Move(move - offset, move, MoveFlag::EN_PASSANT));
             }
 
         };
@@ -80,7 +77,7 @@ namespace chess{
             uint64_t targets = Global::knight_masks[start_sq] & ~pieces_c[player];
 
             for (uint64_t t_board = targets; t_board; t_board &= t_board - 1) {
-                moves.emplace_back(Move(start_sq, __builtin_ctzll(t_board)));
+                moves.push_back(Move(start_sq, __builtin_ctzll(t_board)));
             }
         }
 
@@ -104,7 +101,7 @@ namespace chess{
 
                 for (uint64_t move = possible_moves; move; move &= move - 1) { //addd the moves !
                     int target = __builtin_ctzll(move);
-                    moves.emplace_back(Move(sq, target));
+                    moves.push_back(Move(sq, target));
                 }
             }
         };
@@ -117,14 +114,14 @@ namespace chess{
 
         // -------------------------- King moves -------------------------- //
         uint64_t king = pieces_t[KING] & pieces_c[player];
-        if (!king) return moves; // UH OH!
+        if (!king) return; // UH OH!
 
         int king_idx = __builtin_ctzll(king);
 
         uint64_t moves_mask = Global::king_masks[king_idx] & ~pieces_c[player];
 
         for (uint64_t board = moves_mask; board; board &= board - 1) {
-            moves.emplace_back(Move(king_idx, __builtin_ctzll(board)));
+            moves.push_back(Move(king_idx, __builtin_ctzll(board)));
         }
 
         // -------------------------- Castling moves --------------------------
@@ -132,7 +129,7 @@ namespace chess{
 
         bool can_castle_maybe = (player == WHITE) ? ((castling_rights & 0b1100) != 0) : ((castling_rights & 0b0011) != 0);  // Should we even bother with castling computation?
 
-        if (!can_castle_maybe) { return moves; } //If no castling available, end now!
+        if (!can_castle_maybe) { return; } //If no castling available, end now!
 
         bool queenside_is_free, kingside_is_free;
 
@@ -145,9 +142,9 @@ namespace chess{
             kingside_is_free  = (castling_rights & 0b0001) && !(full_spaces & black_kingside_castle_mask);
         }
 
-        if (!queenside_is_free && !kingside_is_free){ return moves; }  //The spaces on both sides are not free! End now!!!!!!!!
+        if (!queenside_is_free && !kingside_is_free){ return; }  //The spaces on both sides are not free! End now!!!!!!!!
 
-        if (king_in_check(player)) { return moves; } // If the king is in check, we can't castle! END NOW!!!!
+        if (king_in_check(player)) { return; } // If the king is in check, we can't castle! END NOW!!!!
         bool queenside_can_castle = false;
         bool kingside_can_castle = false;
 
@@ -168,15 +165,12 @@ namespace chess{
         }
 
         if (queenside_can_castle) {
-            moves.emplace_back(king_idx, king_idx-2, MoveFlag::CASTLE_QUEENSIDE);
+            moves.push_back(Move(king_idx, king_idx-2, MoveFlag::CASTLE_QUEENSIDE));
         }
         if (kingside_can_castle)  {
-            moves.emplace_back(king_idx, king_idx+2, MoveFlag::CASTLE_KINGSIDE);
+            moves.push_back(Move(king_idx, king_idx+2, MoveFlag::CASTLE_KINGSIDE));
         }
-
-        return moves;
     }
-
 
     /* Checks if a king is in check in the current board state */
     bool Board::king_in_check(Colour player) const {
@@ -217,36 +211,83 @@ namespace chess{
         return false;
     }
 
-    bool Board::is_legal(const Move& move, Colour player) {
-        // TODO make const and fast by using magics to find pins
-        UndoMove undo = play_move(move); // simulate move
-        bool legal = !king_in_check(player); //check move
-        undo_move(undo); // restore state
-        return legal;
+    bool Board::is_legal(const Move& move, Colour player) const {
+        MoveFlag flag = move.flag();
+
+        // castling is guaranteed to be legal
+        if (flag == MoveFlag::CASTLE_KINGSIDE || flag == MoveFlag::CASTLE_QUEENSIDE) {
+            return true;
+        }
+
+        int start = move.start();
+        int end = move.end();
+        int king_sq = __builtin_ctzll(pieces_t[KING] & pieces_c[player]);
+
+        // king end square should be checked if the king moves
+        if (start == king_sq) {
+            king_sq = end;
+        }
+
+        Colour enemy = (player == WHITE) ? BLACK : WHITE;
+
+        // simulate the new occupancy mask and enemy pieces after move is made
+        uint64_t occ = ((pieces_c[WHITE] | pieces_c[BLACK]) ^ (1ULL << start)) | (1ULL << end);
+        uint64_t enemy_pieces = pieces_c[enemy] & ~(1ULL << end);
+
+        // simulate en passant move
+        if (flag == MoveFlag::EN_PASSANT) {
+            int ep_capture_sq = (player == WHITE) ? end - 8 : end + 8;
+            occ ^= (1ULL << ep_capture_sq);
+            enemy_pieces ^= (1ULL << ep_capture_sq);
+        }
+
+        // when we check for atacks, we use the occupancy and enemy piece masks
+        // so when we move a piece, we can check if a pin prevents legality
+
+        // knight
+        if (Global::knight_masks[king_sq] & pieces_t[KNIGHT] & enemy_pieces) return false;
+
+        // pawn
+        int enemy_pawn_idx = (player == WHITE) ? 0 : 1;
+        if (Global::pawn_masks[enemy_pawn_idx][king_sq] & pieces_t[PAWN] & enemy_pieces) return false;
+
+        // king
+        if (Global::king_masks[king_sq] & pieces_t[KING] & enemy_pieces) return false;
+
+        auto check_sliders = [&](uint64_t attackers, bool is_rook) {
+            if (!attackers) return false;
+            uint64_t mask = is_rook ? Global::rook_masks[king_sq] : Global::bishop_masks[king_sq];
+            uint64_t magic = is_rook ? Global::rook_magics[king_sq] : Global::bishop_magics[king_sq];
+
+            int index = ((occ & mask) * magic) >> (64 - __builtin_popcountll(mask));
+            uint64_t attacks = is_rook ? Global::rook_attacks[king_sq][index] : Global::bishop_attacks[king_sq][index];
+            return (attacks & attackers) != 0;
+        };
+
+        if (check_sliders((pieces_t[ROOK] | pieces_t[QUEEN]) & enemy_pieces, true)) return false;
+        if (check_sliders((pieces_t[BISHOP] | pieces_t[QUEEN]) & enemy_pieces, false)) return false;
+
+        return true;
     }
 
-    std::vector<Move> Board::generate_all_legal_moves(Colour player) {
-        std::vector<Move> moves = generate_all_moves(player);
-        std::vector<Move> legal_moves;
-        legal_moves.reserve(256); //218 max legal moves. TODO: replace with a static array (no heap lookup)
+    void Board::generate_all_legal_moves(Colour player, MoveList& legal_moves) const {
+        MoveList pseudo_moves;
+        generate_all_moves(player, pseudo_moves);
 
-        for (const Move& move : moves) {
+        for (const Move& move : pseudo_moves) {
             if (is_legal(move, player)) {
                 legal_moves.push_back(move);
             }
         }
-
-        return legal_moves;
     }
 
-    std::vector<Move> Board::generate_all_legal_capture_moves(Colour player) {
-        std::vector<Move> moves = generate_all_moves(player);
-        std::vector<Move> legal_capture_moves;
-        legal_capture_moves.reserve(256);
+    void Board::generate_all_legal_capture_moves(Colour player, MoveList& legal_capture_moves) const {
+        MoveList pseudo_moves;
+        generate_all_moves(player, pseudo_moves);
 
         Colour enemy = (player == WHITE) ? BLACK : WHITE;
 
-        for (const Move& move : moves) {
+        for (const Move& move : pseudo_moves) {
             // first check if capture
             if (get_piece_colour(move.end()) == enemy) {
                 if (is_legal(move, player)) {
@@ -254,8 +295,6 @@ namespace chess{
                 }
             }
         }
-
-        return legal_capture_moves;
     }
 
 }

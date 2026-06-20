@@ -155,7 +155,8 @@ namespace chess{
             }
         }
 
-        std::vector<Move> legal_moves = generate_all_legal_moves(current_turn);
+        MoveList legal_moves;
+        generate_all_legal_moves(current_turn, legal_moves);
         for (const Move& legal_move : legal_moves) {
             if (legal_move.start() == start && legal_move.end() == end) {
                 if (promo_flag != MoveFlag::NONE_FLAG) {

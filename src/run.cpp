@@ -1,11 +1,12 @@
+#include <cstdint>
 #include <iostream>
 #include <chrono>
 #include <string>
 #include <sstream>
+#include <vector>
 #include "board.hpp"
 #include "search.hpp"
 #include "run.hpp"
-
 
 // ------------------------------------TERMINAL PLAY MODE ------------------------------------
 
@@ -66,12 +67,16 @@ int terminal_play() {
             auto start_time = std::chrono::high_resolution_clock::now();
 
             int depth = (player == chess::WHITE) ? white_bot_depth : black_bot_depth;
-            chess::Move move;
+            chess::SearchResult result;
             if (depth == 0) {
-                move = chess::find_random_move(board, player);
+                result.best_move = chess::find_random_move(board, player);
+                result.eval = 0;
             } else {
-                move = chess::find_best_move(board, player, depth);
+                result = chess::find_best_move(board, player, depth);
             }
+
+            chess::Move move = result.best_move;
+            int eval = result.eval;
 
             auto end_time = std::chrono::high_resolution_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
@@ -79,6 +84,7 @@ int terminal_play() {
             total_time += duration.count();
             std::cout << "Generation took " << duration.count() << " microseconds." << std::endl;
             std::cout << "Current average: " << total_time / (i + 1) << " microseconds." << std::endl;
+            std::cout << "Evaluation: " << eval << std::endl;
 
             if (move.flag() != chess::MoveFlag::NULL_MOVE) {
                 std::string uci = chess::moveToUCI(move);
@@ -118,7 +124,8 @@ int terminal_play() {
 #include "board.hpp"
 #include "search.hpp"
 
-int CUTECHESS_DEPTH = 7;
+int CUTECHESS_MAX_DEPTH = 8;
+int FALLBACK_TIME_LIMIT_MS = 5000;
 
 int benchmark(int bot_depth) {
     std::vector<std::string> test_fens = {
@@ -168,6 +175,99 @@ int benchmark(int bot_depth) {
     return 0;
 }
 
+// ------------------------------------ PERFT TESTING ------------------------------------
+
+uint64_t perft(chess::Board& board, int depth) {
+    if (depth == 0) return 1ULL;
+
+    uint64_t nodes = 0;
+
+    chess::MoveList legal_moves;
+    board.generate_all_legal_moves(board.get_current_player(), legal_moves);
+
+    for (const chess::Move& move : legal_moves) {
+        chess::UndoMove undo = board.play_move(move);
+        nodes += perft(board, depth - 1);
+        board.undo_move(undo);
+    }
+
+    return nodes;
+}
+
+std::vector<uint64_t> test_perft(const std::string& fen, int depth, uint64_t expected_nodes) {
+    chess::Board board;
+    if (fen == "startpos") {
+        board.reset();
+    } else {
+        board.load_position(fen);
+    }
+
+    std::cout << "Running perft on " << fen << ", depth " << depth << "\n";
+
+    auto start_time = std::chrono::high_resolution_clock::now();
+    uint64_t actual_nodes = perft(board, depth);
+    auto end_time = std::chrono::high_resolution_clock::now();
+
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+
+    if (actual_nodes != expected_nodes) {
+        std::string error_msg = "PERFT FAILED expected " + std::to_string(expected_nodes) + " but got " + std::to_string(actual_nodes);
+        // std::cout << error_msg << std::endl;
+        throw std::runtime_error(error_msg);
+    }
+
+    uint64_t time_passed = duration.count();
+    uint64_t nps = (time_passed > 0) ? (actual_nodes * 1000000ULL) / time_passed : 0;
+
+    std::cout << "PERFT PASSED! Nodes: " << actual_nodes << " | Time: " << time_passed << "us | NPS: " << nps << "\n\n";
+    return {time_passed, actual_nodes};
+}
+
+int run_perft() {
+    uint64_t total_time = 0;
+    uint64_t nodes_processed = 0;
+
+    auto run_test = [&total_time, &nodes_processed](const std::string& fen, int depth, uint64_t expected_nodes) {
+        std::vector<uint64_t> result = test_perft(fen, depth, expected_nodes);
+        total_time += result[0];
+        nodes_processed += result[1];
+    };
+
+    try {
+        // start pos
+        std::string start_pos = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        std::string kiwipete = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+        std::string endgame_pos = "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1";
+        std::string edgecase_pos = "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8";
+
+        run_test(start_pos, 4, 197281);
+        run_test(start_pos, 5, 4865609);
+        run_test(start_pos, 6, 119060324);
+
+        run_test(kiwipete, 4, 4085603);
+        run_test(kiwipete, 5, 193690690);
+
+        run_test(endgame_pos, 4, 43238);
+        run_test(endgame_pos, 5, 674624);
+
+        run_test(edgecase_pos, 1, 44);
+        run_test(edgecase_pos, 2, 1486);
+        run_test(edgecase_pos, 3, 62379);
+        run_test(edgecase_pos, 4, 2103487);
+        run_test(edgecase_pos, 5, 89941194);
+
+        uint64_t nps = (total_time > 0) ? (nodes_processed * 1000000ULL) / total_time : 0;
+        std::cout << "Completed test suite successfully." << "\n";
+        std::cout << "Overall NPS: "  << nps << "\n";
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "\n" << e.what() << "\nMOVE GENERATOR IS BROKEN.\n";
+        return 1;
+    }
+
+}
+
+
 // ------------------------------------ CUTE CHESS API ------------------------------------
 
 int CuteChessAPI::run() {
@@ -188,7 +288,7 @@ int CuteChessAPI::run() {
         } else if (command == "position") {
             position_command(iss, board);
         } else if (command == "go") {
-            go_command(board);
+            go_command(iss, board);
         } else if (command == "quit") {
             break;
         }
@@ -230,7 +330,41 @@ void CuteChessAPI::position_command(std::istringstream& iss, chess::Board& board
     }
 }
 
-void CuteChessAPI::go_command(chess::Board& board) {
-    chess::Move best_move = chess::find_best_move(board, board.get_current_player(), CUTECHESS_DEPTH);
-    std::cout << "bestmove " << chess::moveToUCI(best_move) << std::endl;
+void CuteChessAPI::go_command(std::istringstream& iss, chess::Board& board) {
+    std::string token;
+
+    int movetime = -1;
+    int depth = CUTECHESS_MAX_DEPTH;
+    int wtime = -1, btime = -1, winc = 0, binc = 0;
+
+    while (iss >> token) { //parse
+        if (token == "depth") iss >> depth;
+        else if (token == "movetime") iss >> movetime;
+        else if (token == "wtime") iss >> wtime;
+        else if (token == "btime") iss >> btime;
+        else if (token == "winc") iss >> winc;
+        else if (token == "binc") iss >> binc;
+    }
+
+    int time_limit = FALLBACK_TIME_LIMIT_MS; // fallback limit
+
+    // calculate good time limit based on remaining time and increment
+    if (movetime > 0) {
+        time_limit = movetime; // forced move time
+    } else {
+        chess::Colour player = board.get_current_player();
+        int my_time = (player == chess::WHITE) ? wtime : btime;
+        int my_inc = (player == chess::WHITE) ? winc : binc;
+
+        if (my_time > 0) { // standard time control as detailed on chess programming wiki
+            int lag = 50; // reduce thinking time in case of lag
+            time_limit = (my_time / 20) + (my_inc / 2) - lag;
+            if (time_limit < lag) time_limit = 50; // minimum thinking time of 50ms
+        }
+    }
+
+
+    chess::SearchResult result = chess::find_best_move(board, board.get_current_player(), depth, time_limit);
+    std::cout << "info score cp " << result.eval << std::endl;
+    std::cout << "bestmove " << chess::moveToUCI(result.best_move) << std::endl;
 }

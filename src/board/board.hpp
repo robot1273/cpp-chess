@@ -11,6 +11,22 @@ namespace chess
     inline const std::string WHITE_PIECES[6] = {"♟","♞","♝","♜","♛","♚"};
     inline const std::string BLACK_PIECES[6] = {"♙","♘","♗","♖","♕","♔"};
 
+    struct MoveList {
+        Move moves[256];
+        int count = 0;
+
+        inline void push_back(const Move& move) {
+            moves[count++] = move;
+        }
+
+        // Allow range-based for loops
+        inline Move* begin() { return &moves[0]; }
+        inline Move* end() { return &moves[count]; }
+        inline int size() const { return count; }
+        inline bool empty() const { return count == 0; }
+        inline Move get(int index) const { return moves[index]; }
+    };
+
     // to track a hashed game state
     struct GameState {
         uint64_t hash;
@@ -38,7 +54,6 @@ namespace chess
             bool is_square_attacked(int sq, Colour player) const;
             int get_zobrist_piece_index(int square) const;
             int get_zobrist_piece_index(Piece p, Colour c) const;
-
         public:
             void reset() {
                 pieces_t[PAWN]   = 0x00FF00000000FF00;
@@ -62,23 +77,24 @@ namespace chess
                 reset(); //setup initial board state
             }
 
-            std::vector<Move> generate_all_legal_moves(Colour player);
-            std::vector<Move> generate_all_legal_capture_moves(Colour player);
+            void generate_all_moves(Colour player, MoveList& moves) const;
+            void generate_all_legal_moves(Colour player, MoveList& moves) const;
+            void generate_all_legal_capture_moves(Colour player, MoveList& moves) const;
 
             UndoMove play_move(Move move);
             UndoMove play_move(std::string uci);
             void undo_move(UndoMove undo_move);
+
             void display_board(bool fancy) const;
 
             bool king_in_check(Colour player) const;
-            bool is_legal(const Move& move, Colour player);
+            bool is_legal(const Move& move, Colour player) const;
+
             bool is_draw() const; // checks if current game state is a draw
             bool insufficient_material() const;
 
             void update_zobrist_hash(const Move& move); // update hash with a given move
             uint64_t generate_zobrist_hash(Colour player_to_move) const; // of current board state
-
-            std::vector<Move> generate_all_moves(Colour player) const;
 
             void load_position(const std::string& fen);
             std::string get_fen() const;

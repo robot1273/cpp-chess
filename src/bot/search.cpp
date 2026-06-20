@@ -7,10 +7,11 @@
 
 #include <algorithm>
 #include <random>
-#include <iostream>
+#include <chrono>
 
 namespace chess{
-    constexpr int infinity = 1000067;
+    constexpr int infinity = 10000000;
+    constexpr int mate_score = 100000;
     constexpr int draw_penalty = 10; //positive
     constexpr int max_quiescence_depth = 15;
 
@@ -45,7 +46,8 @@ namespace chess{
         if (best_eval >= beta) { return beta; }
         if (best_eval > alpha) { alpha = best_eval; }
 
-        auto moves = board.generate_all_legal_capture_moves(player);
+        MoveList moves;
+        board.generate_all_legal_capture_moves(player, moves);
         std::sort(moves.begin(), moves.end(), MVVLVAMoveOrder{board});
         Colour enemy = (player == WHITE) ? BLACK : WHITE;
 
@@ -67,10 +69,12 @@ namespace chess{
         if (depth == 0) { return quiescence(board, alpha, beta, player); }
         if (board.is_draw()) { return -draw_penalty; } // make a draw slightly undesirable
 
-        auto moves = board.generate_all_legal_moves(player);
+
+        MoveList moves;
+        board.generate_all_legal_moves(player, moves);
         if (moves.empty()) {
             if (board.king_in_check(player)) {
-                return -100000 + moves_made; // checkmate in depth moves
+                return -mate_score + moves_made; // checkmate in depth moves
             }
             return -draw_penalty;  // stalemate
         }
@@ -92,34 +96,69 @@ namespace chess{
         return best_eval;
     }
 
-    Move find_best_move(Board &board, Colour player, int depth) {
-        std::vector<Move> moves = board.generate_all_legal_moves(player);
-        if (moves.empty()) return Move{};
+    inline bool time_up(int limit_ms, std::chrono::steady_clock::time_point start) {
+        if (limit_ms == -1) return false;
+        auto now = std::chrono::steady_clock::now();
+        return std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count() >= limit_ms;
+    }
+
+    SearchResult find_best_move(Board &board, Colour player, int max_depth, int time_limit_ms) {
+        MoveList moves;
+        board.generate_all_legal_moves(player, moves);
+        if (moves.empty()) return SearchResult{Move{}, board.is_draw() ? 0 : -infinity};
 
         Colour enemy = (player == WHITE) ? BLACK : WHITE;
         Move best_move = Move{};
-
         int best_eval = -infinity;
-        int alpha = -infinity;
-        int beta = infinity;
+
+        auto start = std::chrono::steady_clock::now();
 
         std::sort(moves.begin(), moves.end(), MVVLVAMoveOrder{board});
-        for (Move move : moves) {
-            UndoMove undo = board.play_move(move);
-            int eval = -negamax(board, enemy, depth - 1, -beta, -alpha, 1);
-            board.undo_move(undo);
 
-            if (eval > best_eval) {
-                best_eval = eval;
-                best_move = move;
+        for (int depth = 1; depth <= max_depth; depth++) {
+            Move best_iteration_move = Move{};
+            int best_iteration_eval = -infinity;
+            int alpha = -infinity;
+            int beta = infinity;
+
+            // get best move from previous iteration to front
+            if (depth > 1) {
+                for (int i = 0; i < moves.size(); ++i) {
+                    if (moves.begin()[i].start() == best_move.start() && moves.begin()[i].end() == best_move.end()) {
+                        std::swap(moves.begin()[0], moves.begin()[i]);
+                        break;
+                    }
+                }
             }
 
-            alpha = std::max(alpha, eval);
+            for (Move move : moves) {
+                if (time_up(time_limit_ms, start)) break;
+
+                UndoMove undo = board.play_move(move);
+                int eval = -negamax(board, enemy, depth - 1, -beta, -alpha, 1);
+                board.undo_move(undo);
+
+                if (eval > best_iteration_eval) {
+                    best_iteration_eval = eval;
+                    best_iteration_move = move;
+                }
+
+                alpha = std::max(alpha, eval);
+            }
+
+            if (time_up(time_limit_ms, start)) break;
+
+            best_move = best_iteration_move;
+            best_eval = best_iteration_eval;
+
+            // exit early if forced mate (score is close to mate value)
+            if (best_eval >= mate_score * 0.9) break;
         }
 
-        std::cout << "Eval: " << best_eval << std::endl;
-        return best_move;
+        return {best_move, best_eval};
     }
+
+
 
     std::mt19937& global_gen() {
         static std::mt19937 gen(std::random_device{}());
@@ -127,10 +166,11 @@ namespace chess{
     }
 
     Move find_random_move(Board& board, Colour player) {
-        std::vector<Move> moves = board.generate_all_legal_moves(player);
+        MoveList moves;
+        board.generate_all_legal_moves(player, moves);
         if (moves.empty()) return Move{};
 
         std::uniform_int_distribution<> distrib(0, moves.size() - 1);
-        return moves[distrib(global_gen())];
+        return moves.get(distrib(global_gen()));
     }
 }
