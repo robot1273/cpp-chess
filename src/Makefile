@@ -1,6 +1,6 @@
 CXX = g++
 # CXXFLAGS = -g -O0 -Wall -std=c++23
-CXXFLAGS = -O3 -march=native -flto -DNDEBUG -Wall -std=c++23
+CXXFLAGS = -O3 -march=native -DNDEBUG -Wall -std=c++23
 
 # find all .cpp files relative to current directory (src/)
 SRC = $(shell find . -name '*.cpp')

@@ -3,9 +3,6 @@
 #include "board.hpp"
 
 namespace chess{
-    extern int piece_values[6];
-
-    /* Super simple eval function that only considers material value */
-    int eval(const Board &board, Colour player);
-    int mobility_eval(Board &board);
+    constexpr int piece_values[6] = { 100, 330, 360, 500, 900,  0};
+    int eval(const Board& board, Colour player);
 }

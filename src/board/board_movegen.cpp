@@ -218,6 +218,7 @@ namespace chess{
     }
 
     bool Board::is_legal(const Move& move, Colour player) {
+        // TODO make const and fast by using magics to find pins
         UndoMove undo = play_move(move); // simulate move
         bool legal = !king_in_check(player); //check move
         undo_move(undo); // restore state
