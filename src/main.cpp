@@ -16,7 +16,7 @@ int main() {
         case CUTECHESS:
             return CuteChessAPI::run();
         case BENCHMARK:
-            return benchmark(8);
+            return benchmark(9);
         case PERFT:
             return run_perft();
         default:

@@ -140,8 +140,8 @@ namespace chess {
         EvalTable t{};
         for (int p = 0; p < 6; p++) {
             for (int sq = 0; sq < 64; sq++) {
-                t[WHITE][p][sq] = value[p] + piece_table[p][sq];
-                t[BLACK][p][sq] = value[p] + piece_table[p][sq ^ 56];
+                t[WHITE][p][sq] = value[p] + piece_table[p][sq ^ 56];
+                t[BLACK][p][sq] = value[p] + piece_table[p][sq];
             }
         }
         return t;

@@ -8,6 +8,9 @@
 #include "search.hpp"
 #include "run.hpp"
 
+int CUTECHESS_MAX_DEPTH = 10;
+int FALLBACK_TIME_LIMIT_MS = 5000;
+
 // ------------------------------------TERMINAL PLAY MODE ------------------------------------
 
 int terminal_play() {
@@ -116,16 +119,6 @@ int terminal_play() {
 }
 
 // ------------------------------------ ENGINE BENCHMARKS ------------------------------------
-
-#include <iostream>
-#include <chrono>
-#include <vector>
-#include <string>
-#include "board.hpp"
-#include "search.hpp"
-
-int CUTECHESS_MAX_DEPTH = 8;
-int FALLBACK_TIME_LIMIT_MS = 5000;
 
 int benchmark(int bot_depth) {
     std::vector<std::string> test_fens = {
@@ -330,6 +323,19 @@ void CuteChessAPI::position_command(std::istringstream& iss, chess::Board& board
     }
 }
 
+/* helper to convert an evaluation score into num mates if mate, otherwise standard eval
+ * outputs "mate <moves till mate>" if mate, otherwise "cp <eval>"
+ */
+std::string uci_eval_to_mate_string(int eval) {
+    if (std::abs(eval) >= chess::MATE_THRESHOLD) { // if mate
+        int mate = (chess::MATE_SCORE - std::abs(eval) + 1) / 2; // no. moves till mate
+        if (eval < 0) { mate = -mate; } // if black player
+        return "mate " + std::to_string(mate);
+    }
+    return "cp " + std::to_string(eval);
+}
+
+
 void CuteChessAPI::go_command(std::istringstream& iss, chess::Board& board) {
     std::string token;
 
@@ -364,7 +370,24 @@ void CuteChessAPI::go_command(std::istringstream& iss, chess::Board& board) {
     }
 
 
+    auto start = std::chrono::steady_clock::now();
     chess::SearchResult result = chess::find_best_move(board, board.get_current_player(), depth, time_limit);
-    std::cout << "info score cp " << result.eval << std::endl;
+    auto end = std::chrono::steady_clock::now();
+    std::chrono::duration<double, std::milli> elapsed = end - start;
+    int elapsed_ms = static_cast<int>(elapsed.count());
+
+    uint64_t nps = (elapsed_ms > 0 ? chess::nodes_evaluated * 1000ULL / elapsed_ms : 0);
+
+    std::cout
+        << "info"
+        << " depth " << depth
+        << " score " << uci_eval_to_mate_string(result.eval)
+        << " time " << elapsed_ms
+        << " nodes " << chess::nodes_evaluated
+        << " nps " << nps
+        << " pv " << chess::moveToUCI(result.best_move)
+        << std::endl;
+
     std::cout << "bestmove " << chess::moveToUCI(result.best_move) << std::endl;
+
 }
