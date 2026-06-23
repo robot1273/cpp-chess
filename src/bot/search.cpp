@@ -15,7 +15,6 @@ namespace chess{
 
     int DRAW_PENALTY = 10; //positive
     int MAX_QUIESCENCE_DEPTH = 15;
-    int MAX_CHECK_EXTENSION_LIMIT = 15;
     int ASPIRATION_WINDOW_PADDING = 50; //centi pawns
     Move killer_moves[256][2];
 
@@ -70,7 +69,7 @@ namespace chess{
         }
 
         bool in_check = board.king_in_check(player);
-        int extension = (in_check && moves_made < MAX_CHECK_EXTENSION_LIMIT) ? 1 : 0;
+        int extension = in_check ? 1 : 0;
 
         // zugzwang check
         bool has_non_pawn_material = (board.get_piece_colour_mask(player) &
@@ -82,9 +81,7 @@ namespace chess{
             int null_eval = -negamax(board, opposite(player), depth - 1 - 2, -beta, -beta + 1, moves_made + 1, duration);
             board.undo_null_move(undo_move);
 
-            if (null_eval >= beta) {
-                return beta;
-            }
+            if (null_eval >= beta) { return beta; }
         }
 
         int original_alpha = alpha;
@@ -176,7 +173,6 @@ namespace chess{
 
         Move best_move = Move{};
         int best_eval = -INFTY;
-
         Duration duration(time_limit_ms);
 
         order_moves(moves, board);
@@ -187,42 +183,56 @@ namespace chess{
         }
 
         for (int depth = 1; depth <= max_depth; depth++) {
-            Move best_iteration_move = Move{};
-            int best_iteration_eval = -INFTY;
             int alpha = -INFTY;
             int beta = INFTY;
 
-            // get best move from previous iteration to front
-            if (depth > 1) {
-                for (int i = 0; i < moves.size(); ++i) {
-                    if (moves.begin()[i].start() == best_move.start() && moves.begin()[i].end() == best_move.end()) {
-                        std::swap(moves.begin()[0], moves.begin()[i]);
-                        break;
-                    }
-                }
+            if (depth >= 3) {
+                alpha = std::max(-INFTY, best_eval - ASPIRATION_WINDOW_PADDING);
+                beta  = std::min(INFTY, best_eval + ASPIRATION_WINDOW_PADDING);
             }
 
-            for (Move move : moves) {
-                if (duration.time_up()) break;
+            while (true) {
+                Move best_iteration_move = Move{};
+                int best_iteration_eval = -INFTY;
+                int current_alpha = alpha;
 
-                UndoMove undo = board.play_move(move);
-                int eval = -negamax(board, opposite(player), depth - 1, -beta, -alpha, 1, duration);
-                board.undo_move(undo);
-
-                if (eval > best_iteration_eval) {
-                    best_iteration_eval = eval;
-                    best_iteration_move = move;
+                // get best move from previous iteration to front
+                if (depth > 1) {
+                    for (int i = 0; i < moves.size(); ++i) {
+                        if (moves.begin()[i].start() == best_move.start() && moves.begin()[i].end() == best_move.end()) {
+                            std::swap(moves.begin()[0], moves.begin()[i]);
+                            break;
+                        }
+                    }
                 }
 
-                alpha = std::max(alpha, eval);
+                for (Move move : moves) {
+                    if (duration.time_up()) break;
+
+                    UndoMove undo = board.play_move(move);
+                    int eval = -negamax(board, opposite(player), depth - 1, -beta, -current_alpha, 1, duration);
+                    board.undo_move(undo);
+
+                    if (eval > best_iteration_eval) {
+                        best_iteration_eval = eval;
+                        best_iteration_move = move;
+                    }
+
+                    current_alpha = std::max(current_alpha, eval);
+                }
+
+                if (duration.time_up()) break;
+
+                // aspiration window fallbacks
+                if (best_iteration_eval <= alpha) { alpha = -INFTY; continue; }
+                if (best_iteration_eval >= beta) { beta = INFTY; continue; }
+
+                best_move = best_iteration_move;
+                best_eval = best_iteration_eval;
+                break;
             }
 
             if (duration.time_up()) break;
-
-            best_move = best_iteration_move;
-            best_eval = best_iteration_eval;
-
-            // exit early if forced mate (score is close to mate value)
             if (best_eval >= MATE_THRESHOLD) break;
         }
 
