@@ -40,6 +40,7 @@ namespace chess{
     struct SearchResult {
         Move best_move;
         int eval;
+        int depth_reached;
     };
 
     struct TranspositionTable {

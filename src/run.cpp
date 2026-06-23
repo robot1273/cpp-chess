@@ -8,7 +8,7 @@
 #include "search.hpp"
 #include "run.hpp"
 
-int CUTECHESS_MAX_DEPTH = 10;
+int CUTECHESS_MAX_DEPTH = -1; // -negative for (virtually) infinite depth
 int FALLBACK_TIME_LIMIT_MS = 5000;
 
 // ------------------------------------TERMINAL PLAY MODE ------------------------------------
@@ -363,6 +363,7 @@ void CuteChessAPI::go_command(std::istringstream& iss, chess::Board& board) {
         }
     }
 
+    if (depth < 0) { depth = 256; }
 
     auto start = std::chrono::steady_clock::now();
     chess::SearchResult result = chess::find_best_move(board, board.get_current_player(), depth, time_limit);
@@ -374,12 +375,11 @@ void CuteChessAPI::go_command(std::istringstream& iss, chess::Board& board) {
 
     std::cout
         << "info"
-        << " depth " << depth
+        << " depth " << result.depth_reached
         << " score " << uci_eval_to_mate_string(result.eval)
         << " time " << elapsed_ms
         << " nodes " << chess::nodes_evaluated
         << " nps " << nps
-        << " pv " << chess::moveToUCI(result.best_move)
         << std::endl;
 
     std::cout << "bestmove " << chess::moveToUCI(result.best_move) << std::endl;

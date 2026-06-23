@@ -129,6 +129,7 @@ namespace chess{
 
             bool is_capture = (undo.captured_piece != NONE);
             bool is_promotion = isPromotion(move.flag());
+            bool is_quiet = !is_capture && !is_promotion;
 
             if (move_idx == 0) { // search principal variation with full window
                 eval = -negamax(board, opposite(player), depth - 1 + extension, -beta, -alpha, moves_made + 1, duration);
@@ -136,7 +137,7 @@ namespace chess{
                 bool needs_full_search = true;
 
                 // late move reduction
-                if (depth >= 3 && !in_check && !is_capture && !is_promotion && move_idx >= 4) {
+                if (depth >= 3 && !in_check && is_quiet && move_idx >= 4) {
                     // if the move is not a capture or promotion, reduce depth and search with zero window
                     int reduction = 1;
                     if (depth > 4 && move_idx >= 6) reduction = 2; // scale reduction for very late moves
@@ -197,7 +198,9 @@ namespace chess{
             killer_moves[i][1] = Move{};
         }
 
+        int depth_reached = 0;
         for (int depth = 1; depth <= max_depth; depth++) {
+            depth_reached = depth;
             int alpha = -INFTY;
             int beta = INFTY;
 
@@ -251,7 +254,7 @@ namespace chess{
             if (best_eval >= MATE_THRESHOLD) break;
         }
 
-        return {best_move, best_eval};
+        return {best_move, best_eval, depth_reached};
     }
 
     std::mt19937& global_gen() {
