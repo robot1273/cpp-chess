@@ -8,6 +8,7 @@
 #include <chrono>
 
 namespace chess{
+    extern Move killer_moves[256][2];
     extern uint64_t nodes_evaluated;
     extern int MATE_SCORE;
     extern int MATE_THRESHOLD;
@@ -105,8 +106,44 @@ namespace chess{
         }
     };
 
-    inline void order_moves(MoveList& moves, const Board& board) {
+    /*
+     * MMV-LVA move ordering
+     * Then transposition table move ordering (if tt_entry != nullptr)
+     * Then killer move ordering (if moves_made != -1)
+     */
+    inline void order_moves(MoveList& moves,
+                            const Board& board,
+                            TranspositionTableEntry* tt_entry = nullptr,
+                            int moves_made=-1) {
         std::sort(moves.begin(), moves.end(), MVVLVAMoveOrder{board});
+        int sort_idx = 0;
+
+        // tt move ordering
+        if (tt_entry != nullptr) {
+            for (int i = 0; i < moves.size(); ++i) {
+                if (moves.begin()[i].start() == tt_entry->move.start() && moves.begin()[i].end() == tt_entry->move.end()) {
+                    std::swap(moves.begin()[sort_idx], moves.begin()[i]);
+                    sort_idx++;
+                    break;
+                }
+            }
+        }
+
+        if (moves_made == -1) return;
+
+        // killer move ordering
+        for (int k = 0; k < 2; ++k) {
+            Move km = killer_moves[moves_made][k];
+            if (km.move == 0) continue;
+
+            for (int i = sort_idx; i < moves.size(); ++i) {
+                if (moves.begin()[i].move == km.move) {
+                    std::swap(moves.begin()[sort_idx], moves.begin()[i]);
+                    sort_idx++;
+                    break;
+                }
+            }
+        }
     }
 
     struct Duration {

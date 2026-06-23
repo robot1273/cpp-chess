@@ -26,8 +26,17 @@ namespace chess{
     int quiescence(Board& board, int alpha, int beta, Colour player, int depth = 0) {
         nodes_evaluated++;
         if (depth >= MAX_QUIESCENCE_DEPTH) { return eval(board, player); }
+
+        uint64_t hash = board.get_current_hash();
+        TranspositionTableEntry* tt_entry = transposition_table.probe(hash);
+        if (transposition_table.is_cutoff(tt_entry, 0, alpha, beta)) {
+            return tt_entry->score;
+        }
+
         bool in_check = board.king_in_check(player);
         int best_eval = -INFTY;
+        int original_alpha = alpha;
+        Move best_move = Move{};
 
         if (!in_check) {
             int static_eval = eval(board, player);
@@ -44,17 +53,21 @@ namespace chess{
             if (moves.empty()) { return -MATE_SCORE + depth; } //checkmate
         }
 
-        order_moves(moves, board);
+        order_moves(moves, board, tt_entry);
 
         for (const Move& move : moves) {
             UndoMove undo = board.play_move(move);
             int eval = -quiescence(board, -beta, -alpha, opposite(player), depth+1);
             board.undo_move(undo);
 
-            if (eval > best_eval) { best_eval = eval; }
+            if (eval > best_eval) { best_eval = eval; best_move = move; }
             if (eval > alpha) { alpha = eval; }
             if (alpha >= beta) { break; }
         }
+
+        transposition_table.insert(TranspositionTableEntry::new_entry(
+            best_eval, original_alpha, beta, 0, best_move, hash
+        ));
 
         return best_eval;
     }
@@ -104,32 +117,7 @@ namespace chess{
                 : -DRAW_PENALTY;           // otherwise, draw (extra check but prob unessesary)
         }
 
-        order_moves(moves, board);
-
-        int sort_idx = 0;
-
-        // tt move ordering
-        if (tt_entry != nullptr) {
-            for (int i = 0; i < moves.size(); ++i) {
-                if (moves.begin()[i].start() == tt_entry->move.start() && moves.begin()[i].end() == tt_entry->move.end()) {
-                    std::swap(moves.begin()[sort_idx], moves.begin()[i]);
-                    sort_idx++;
-                    break;
-                }
-            }
-        }
-
-        // killer move ordering
-        for (int k = 0; k < 2; ++k) {
-            Move km = killer_moves[moves_made][k];
-            for (int i = sort_idx; i < moves.size(); ++i) {
-                if (moves.begin()[i].move == km.move) {
-                    std::swap(moves.begin()[sort_idx], moves.begin()[i]);
-                    sort_idx++;
-                    break;
-                }
-            }
-        }
+        order_moves(moves, board, tt_entry, moves_made);
 
         int best_eval = -INFTY;
         Move best_move = Move{};
