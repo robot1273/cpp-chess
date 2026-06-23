@@ -15,6 +15,9 @@ namespace chess{
 
     int DRAW_PENALTY = 10; //positive
     int MAX_QUIESCENCE_DEPTH = 15;
+    int MAX_CHECK_EXTENSION_LIMIT = 15;
+    int ASPIRATION_WINDOW_PADDING = 50; //centi pawns
+    Move killer_moves[256][2];
 
     uint64_t nodes_evaluated = 0;
 
@@ -66,12 +69,15 @@ namespace chess{
             if (duration.time_up()) { return 0; }
         }
 
+        bool in_check = board.king_in_check(player);
+        int extension = (in_check && moves_made < MAX_CHECK_EXTENSION_LIMIT) ? 1 : 0;
+
         // zugzwang check
         bool has_non_pawn_material = (board.get_piece_colour_mask(player) &
                                     ~(board.get_piece_type_mask(chess::PAWN) |
                                      board.get_piece_type_mask(chess::KING))) != 0;
 
-        if (depth >= 3 && !board.king_in_check(player) && eval(board, player) >= beta && has_non_pawn_material) {
+        if (depth >= 3 && !in_check && eval(board, player) >= beta && has_non_pawn_material) {
             UndoMove undo_move = board.play_null_move();
             int null_eval = -negamax(board, opposite(player), depth - 1 - 2, -beta, -beta + 1, moves_made + 1, duration);
             board.undo_null_move(undo_move);
@@ -96,16 +102,34 @@ namespace chess{
         MoveList moves;
         board.generate_all_legal_moves(player, moves);
         if (moves.empty()) {
-            return board.king_in_check(player)
+            return in_check
                 ? -MATE_SCORE + moves_made // checkmate in n moves
                 : -DRAW_PENALTY;           // otherwise, draw (extra check but prob unessesary)
         }
 
         order_moves(moves, board);
-        if (tt_entry != nullptr) { // tt move ordering
+
+        int sort_idx = 0;
+
+        // tt move ordering
+        if (tt_entry != nullptr) {
             for (int i = 0; i < moves.size(); ++i) {
                 if (moves.begin()[i].start() == tt_entry->move.start() && moves.begin()[i].end() == tt_entry->move.end()) {
-                    std::swap(moves.begin()[0], moves.begin()[i]); break;
+                    std::swap(moves.begin()[sort_idx], moves.begin()[i]);
+                    sort_idx++;
+                    break;
+                }
+            }
+        }
+
+        // killer move ordering
+        for (int k = 0; k < 2; ++k) {
+            Move km = killer_moves[moves_made][k];
+            for (int i = sort_idx; i < moves.size(); ++i) {
+                if (moves.begin()[i].move == km.move) {
+                    std::swap(moves.begin()[sort_idx], moves.begin()[i]);
+                    sort_idx++;
+                    break;
                 }
             }
         }
@@ -115,12 +139,20 @@ namespace chess{
 
         for (const Move& move : moves) {
             UndoMove undo = board.play_move(move);
-            int eval = -negamax(board, opposite(player), depth - 1, -beta, -alpha, moves_made + 1);
+            int eval = -negamax(board, opposite(player), depth - 1 + extension, -beta, -alpha, moves_made + 1, duration);
             board.undo_move(undo);
 
             if (eval > best_eval) { best_eval = eval; best_move = move; }
             if (eval > alpha) { alpha = eval; }
-            if (alpha >= beta) { break; }
+            if (alpha >= beta) { // store killer move
+                if (undo.captured_piece == NONE && !isPromotion(move.flag())) {
+                    if (killer_moves[moves_made][0].move != move.move) {
+                        killer_moves[moves_made][1] = killer_moves[moves_made][0];
+                        killer_moves[moves_made][0] = move;
+                    }
+                }
+                break;
+            }
         }
 
         if (duration.time_up()) { return best_eval; } // make sure not to add time up to tt
@@ -148,6 +180,11 @@ namespace chess{
         Duration duration(time_limit_ms);
 
         order_moves(moves, board);
+
+        for(int i=0; i<256; i++) {
+            killer_moves[i][0] = Move{};
+            killer_moves[i][1] = Move{};
+        }
 
         for (int depth = 1; depth <= max_depth; depth++) {
             Move best_iteration_move = Move{};
