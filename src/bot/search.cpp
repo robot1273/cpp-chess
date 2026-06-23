@@ -133,16 +133,42 @@ namespace chess{
 
         int best_eval = -INFTY;
         Move best_move = Move{};
+        int move_idx = 0;
 
         for (const Move& move : moves) {
             UndoMove undo = board.play_move(move);
-            int eval = -negamax(board, opposite(player), depth - 1 + extension, -beta, -alpha, moves_made + 1, duration);
+            int eval;
+
+            bool is_capture = (undo.captured_piece != NONE);
+            bool is_promotion = isPromotion(move.flag());
+
+            if (move_idx == 0) { // search principal variation with full window
+                eval = -negamax(board, opposite(player), depth - 1 + extension, -beta, -alpha, moves_made + 1, duration);
+            } else { // search next moves with zero window to discard
+                bool needs_full_search = true;
+
+                // late move reduction
+                if (depth >= 3 && !in_check && !is_capture && !is_promotion && move_idx >= 4) {
+                    // if the move is not a capture or promotion, reduce depth and search with zero window
+                    int reduction = 1;
+                    if (depth > 4 && move_idx >= 6) reduction = 2; // scale reduction for very late moves
+                    eval = -negamax(board, opposite(player), depth - 1 - reduction + extension, -(alpha + 1), -alpha, moves_made + 1, duration);
+                    if (eval <= alpha) { needs_full_search = false; } // verified this was a bad move, we dont re-seach
+                }
+
+                if (needs_full_search) { // search full move because actually it was good
+                    eval = -negamax(board, opposite(player), depth - 1 + extension, -(alpha + 1), -alpha, moves_made + 1, duration);
+                    if (eval > alpha && eval < beta) {
+                        eval = -negamax(board, opposite(player), depth - 1 + extension, -beta, -alpha, moves_made + 1, duration);
+                    }
+                }
+            }
             board.undo_move(undo);
 
             if (eval > best_eval) { best_eval = eval; best_move = move; }
             if (eval > alpha) { alpha = eval; }
             if (alpha >= beta) { // store killer move
-                if (undo.captured_piece == NONE && !isPromotion(move.flag())) {
+                if (undo.captured_piece == NONE && !is_promotion) {
                     if (killer_moves[moves_made][0].move != move.move) {
                         killer_moves[moves_made][1] = killer_moves[moves_made][0];
                         killer_moves[moves_made][0] = move;
@@ -150,6 +176,7 @@ namespace chess{
                 }
                 break;
             }
+            move_idx ++;
         }
 
         if (duration.time_up()) { return best_eval; } // make sure not to add time up to tt
