@@ -37,6 +37,9 @@ namespace chess::Global  {
     constexpr int zobrist_key_length = 12;
     extern uint64_t zobrist_piece_keys[64][zobrist_key_length];
     extern uint64_t zobrist_player_turn_key;
+    extern uint64_t zobrist_castling_rights_keys[16];
+    extern uint64_t zobrist_en_passant_keys[8];
+
 
     /**
      * generates sliding piece movement mask

@@ -1,5 +1,6 @@
 #include "board_precalculation.hpp"
 #include "utility.hpp"
+#include <cstdint>
 #include <vector>
 
 #include <cmath>
@@ -21,6 +22,8 @@ namespace chess::Global {
 
     uint64_t zobrist_piece_keys[64][zobrist_key_length];
     uint64_t zobrist_player_turn_key;
+    uint64_t zobrist_castling_rights_keys[16];
+    uint64_t zobrist_en_passant_keys[8];
 
     /* initialise global constants */
     GlobalInit::GlobalInit() {
@@ -31,6 +34,14 @@ namespace chess::Global {
              }
          }
          zobrist_player_turn_key = utility::random_u64();
+
+         for (int i = 0; i < 16; ++i) {
+             zobrist_castling_rights_keys[i] = utility::random_u64();
+         }
+
+         for (int i = 0; i < 8; ++i) {
+             zobrist_en_passant_keys[i] = utility::random_u64();
+         }
 
         // sliding pieces
         for (int sq = 0; sq < 64; ++sq) {

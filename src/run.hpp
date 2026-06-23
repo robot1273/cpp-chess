@@ -8,6 +8,6 @@ namespace CuteChessAPI {
     void go_command(std::istringstream& iss, chess::Board& board);
 };
 
-int terminal_play();
+int terminal_play(int human);
 int benchmark(int bot_depth);
 int run_perft();

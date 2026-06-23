@@ -13,14 +13,9 @@ int FALLBACK_TIME_LIMIT_MS = 5000;
 
 // ------------------------------------TERMINAL PLAY MODE ------------------------------------
 
-int terminal_play() {
+// -1 = bot v bot, 0 = white, 1 = black, 2 = both
+int terminal_play(int human) {
     chess::Board board;
-
-    std::string fen = "kqqqqqqq/qqqqqqqq/qqqqqqqq/qqqqqqqq/QQQQQQQQ/QQQQQQQQ/QQQQQQQQ/QQQQQQQK w - - 0 1";
-    board.load_position(fen);
-
-    std::cout << fen << std::endl;
-    std::cout << board.get_fen() << std::endl;
 
     int i = 0;
     double total_time = 0;
@@ -32,7 +27,6 @@ int terminal_play() {
     int white_bot_depth = 6;
     int black_bot_depth = 6;
 
-    int human = -1; // -1 = bot v bot, 0 = white, 1 = black, 2 = both
     bool fancy_print = true;
 
     board.display_board(fancy_print);

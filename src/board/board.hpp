@@ -85,10 +85,14 @@ namespace chess
             UndoMove play_move(std::string uci);
             void undo_move(UndoMove undo_move);
 
+            UndoMove play_null_move();
+            void undo_null_move(UndoMove undo_move);
+
             void display_board(bool fancy) const;
 
             bool king_in_check(Colour player) const;
             bool is_legal(const Move& move, Colour player) const;
+            bool is_legal(const Move& move, Colour player, int king_sq, Colour enemy) const;
 
             bool is_draw() const; // checks if current game state is a draw
             bool insufficient_material() const;

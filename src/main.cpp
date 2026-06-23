@@ -12,7 +12,7 @@ Process process = CUTECHESS;
 int main() {
     switch (process) {
         case TERMINAL_PLAY:
-            return terminal_play();
+            return terminal_play(-1);
         case CUTECHESS:
             return CuteChessAPI::run();
         case BENCHMARK:

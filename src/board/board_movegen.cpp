@@ -212,6 +212,12 @@ namespace chess{
     }
 
     bool Board::is_legal(const Move& move, Colour player) const {
+        int king_sq = __builtin_ctzll(pieces_t[KING] & pieces_c[player]);
+        Colour enemy = (player == WHITE) ? BLACK : WHITE;
+        return is_legal(move, player, king_sq, enemy);
+    }
+
+    bool Board::is_legal(const Move& move, Colour player, int king_sq, Colour enemy) const {
         MoveFlag flag = move.flag();
 
         // castling is guaranteed to be legal
@@ -221,14 +227,11 @@ namespace chess{
 
         int start = move.start();
         int end = move.end();
-        int king_sq = __builtin_ctzll(pieces_t[KING] & pieces_c[player]);
 
         // king end square should be checked if the king moves
         if (start == king_sq) {
             king_sq = end;
         }
-
-        Colour enemy = (player == WHITE) ? BLACK : WHITE;
 
         // simulate the new occupancy mask and enemy pieces after move is made
         uint64_t occ = ((pieces_c[WHITE] | pieces_c[BLACK]) ^ (1ULL << start)) | (1ULL << end);
@@ -274,8 +277,12 @@ namespace chess{
         MoveList pseudo_moves;
         generate_all_moves(player, pseudo_moves);
 
+        // cache
+        int king_sq = __builtin_ctzll(pieces_t[KING] & pieces_c[player]);
+        Colour enemy = (player == WHITE) ? BLACK : WHITE;
+
         for (const Move& move : pseudo_moves) {
-            if (is_legal(move, player)) {
+            if (is_legal(move, player, king_sq, enemy)) {
                 legal_moves.push_back(move);
             }
         }
@@ -286,11 +293,15 @@ namespace chess{
         generate_all_moves(player, pseudo_moves);
 
         Colour enemy = (player == WHITE) ? BLACK : WHITE;
+        int king_sq = __builtin_ctzll(pieces_t[KING] & pieces_c[player]);
 
         for (const Move& move : pseudo_moves) {
-            // first check if capture
-            if (get_piece_colour(move.end()) == enemy) {
-                if (is_legal(move, player)) {
+            bool is_capture = get_piece_colour(move.end()) == enemy;
+            bool is_en_passant = move.flag() == MoveFlag::EN_PASSANT;
+            bool is_promotion = isPromotion(move.flag());
+
+            if (is_capture || is_en_passant || is_promotion) {
+                if (is_legal(move, player, king_sq, enemy)) {
                     legal_capture_moves.push_back(move);
                 }
             }

@@ -5,6 +5,7 @@
 #include <random>
 #include <algorithm>
 #include <stdexcept>
+#include <chrono>
 
 namespace chess{
     extern uint64_t nodes_evaluated;
@@ -108,7 +109,14 @@ namespace chess{
         std::sort(moves.begin(), moves.end(), MVVLVAMoveOrder{board});
     }
 
-    int negamax(Board& board, Colour player, int depth, float alpha, float beta, int moves_made);
+    struct Duration {
+        const std::chrono::steady_clock::time_point start;
+        const int limit_ms;
+        Duration(int limit_ms = -1) : start(std::chrono::steady_clock::now()), limit_ms(limit_ms) {}
+        inline bool time_up() const { return limit_ms != -1 && std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count() >= limit_ms; }
+    };
+
+    int negamax(Board& board, Colour player, int depth, float alpha, float beta, int moves_made, std::chrono::steady_clock::time_point start, int time_limit_ms = 0);
     SearchResult find_best_move(Board &board, Colour player, int max_depth, int time_limit_ms = -1);
     Move find_random_move(Board &board, Colour player);
 

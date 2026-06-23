@@ -2,6 +2,7 @@
 #include "enums.hpp"
 #include "move.hpp"
 #include "utility.hpp"
+#include "board_precalculation.hpp"
 
 #include <cstdint>
 #include <iostream>
@@ -34,6 +35,11 @@ namespace chess{
 
         // draw conditions and hash
         game_state_stack.push_back({current_hash, half_move_counter}); // push current hash onto stack
+
+        // old castling rights and en passant moves
+        current_hash ^= Global::zobrist_castling_rights_keys[castling_rights];
+        if (en_passant_moves) current_hash ^= Global::zobrist_en_passant_keys[__builtin_ctzll(en_passant_moves) % 8];
+
         update_zobrist_hash(move); //update hash before board state changes
 
         if (captured_piece != NONE || piece_type == PAWN) {
@@ -87,6 +93,11 @@ namespace chess{
             pieces_c[piece_colour] ^= rook_mask;
 
             en_passant_moves = 0ULL; // make sure no en passant move is possible
+
+            // add en passant and castling moves back to hash
+            current_hash ^= Global::zobrist_castling_rights_keys[castling_rights];
+            if (en_passant_moves) { current_hash ^= Global::zobrist_en_passant_keys[__builtin_ctzll(en_passant_moves) % 8]; }
+
             return {move, NONE, old_en_passant, old_castling_rights};
         }
 
@@ -129,6 +140,9 @@ namespace chess{
             int ep_sq = (start + end) / 2;
             en_passant_moves = (1ULL << ep_sq);
         }
+
+        current_hash ^= Global::zobrist_castling_rights_keys[castling_rights];
+        if (en_passant_moves) { current_hash ^= Global::zobrist_en_passant_keys[__builtin_ctzll(en_passant_moves) % 8]; }
 
         return {move, captured_piece, old_en_passant, old_castling_rights}; //return the data to undo thhe move
     };
@@ -213,7 +227,38 @@ namespace chess{
 
     };
 
-    // simple I/O
+    // null move simulation for null move pruning
+
+    UndoMove Board::play_null_move() {
+        game_state_stack.push_back({current_hash, half_move_counter});
+
+        uint64_t old_en_passant = en_passant_moves;
+        uint8_t old_castling_rights = castling_rights;
+
+        if (en_passant_moves) {
+            current_hash ^= Global::zobrist_en_passant_keys[__builtin_ctzll(en_passant_moves) % 8];
+        }
+        current_hash ^= Global::zobrist_player_turn_key;
+
+        current_turn = (current_turn == WHITE) ? BLACK : WHITE;
+        en_passant_moves = 0ULL;
+        half_move_counter++;
+
+        return {Move(), NONE, old_en_passant, old_castling_rights};
+    }
+
+    void Board::undo_null_move(UndoMove undo_move) {
+        en_passant_moves = undo_move.en_passant_state;
+        castling_rights = undo_move.castling_rights_state;
+
+        current_turn = (current_turn == WHITE) ? BLACK : WHITE;
+
+        const GameState& previous_state = game_state_stack.back();
+        current_hash = previous_state.hash;
+        half_move_counter = previous_state.half_move_counter;
+        game_state_stack.pop_back();
+    }
+
     void Board::display_board(bool fancy) const {
         for (int rank = 7; rank >= 0; rank--) {
             if (fancy) {  std::cout << (rank + 1) << "  ";  }

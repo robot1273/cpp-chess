@@ -42,6 +42,11 @@ namespace chess{
             hash ^= Global::zobrist_player_turn_key;
         }
 
+        hash ^= Global::zobrist_castling_rights_keys[castling_rights];
+        if (en_passant_moves) {
+            hash ^= Global::zobrist_en_passant_keys[__builtin_ctzll(en_passant_moves) % 8];
+        }
+
         return hash;
     }
 

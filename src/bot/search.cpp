@@ -7,7 +7,6 @@
 
 #include <cstdint>
 #include <random>
-#include <chrono>
 
 namespace chess{
     int INFTY = 10000000;
@@ -19,20 +18,30 @@ namespace chess{
 
     uint64_t nodes_evaluated = 0;
 
-    static const int TRANSPOSITION_TABLE_SIZE_EXP = 20; // 2^20 entries (HAS TO BE POWER OF 2 for fast idx)
+    static const int TRANSPOSITION_TABLE_SIZE_EXP = 22; // 2^20 entries (HAS TO BE POWER OF 2 for fast idx)
     TranspositionTable transposition_table(TRANSPOSITION_TABLE_SIZE_EXP);
 
     int quiescence(Board& board, int alpha, int beta, Colour player, int depth = 0) {
         nodes_evaluated++;
-        if (depth == 0 || depth >= MAX_QUIESCENCE_DEPTH) { return eval(board, player); }
+        if (depth >= MAX_QUIESCENCE_DEPTH) { return eval(board, player); }
+        bool in_check = board.king_in_check(player);
+        int best_eval = -INFTY;
 
-        int static_eval = eval(board, player);
-        int best_eval = static_eval;
-        if (best_eval >= beta) { return beta; }
-        if (best_eval > alpha) { alpha = best_eval; }
+        if (!in_check) {
+            int static_eval = eval(board, player);
+            best_eval = static_eval;
+            if (best_eval >= beta) { return beta; }
+            if (best_eval > alpha) { alpha = best_eval; }
+        }
 
         MoveList moves;
-        board.generate_all_legal_capture_moves(player, moves);
+        if (!in_check) {
+            board.generate_all_legal_capture_moves(player, moves);
+        } else {
+            board.generate_all_legal_moves(player, moves);
+            if (moves.empty()) { return -MATE_SCORE + depth; } //checkmate
+        }
+
         order_moves(moves, board);
 
         for (const Move& move : moves) {
@@ -48,15 +57,41 @@ namespace chess{
         return best_eval;
     }
 
-    int negamax(Board& board, Colour player, int depth, int alpha, int beta, int moves_made){
+    int negamax(Board& board, Colour player, int depth, int alpha, int beta, int moves_made, Duration duration = Duration{}){
         nodes_evaluated++;
         if (depth == 0) { return quiescence(board, alpha, beta, player); }
         if (board.is_draw()) { return -DRAW_PENALTY; } // make a draw slightly undesirable
 
+        if ((nodes_evaluated & 2047) == 0) { // mod 2048
+            if (duration.time_up()) { return 0; }
+        }
+
+        // zugzwang check
+        bool has_non_pawn_material = (board.get_piece_colour_mask(player) &
+                                    ~(board.get_piece_type_mask(chess::PAWN) |
+                                     board.get_piece_type_mask(chess::KING))) != 0;
+
+        if (depth >= 3 && !board.king_in_check(player) && eval(board, player) >= beta && has_non_pawn_material) {
+            UndoMove undo_move = board.play_null_move();
+            int null_eval = -negamax(board, opposite(player), depth - 1 - 2, -beta, -beta + 1, moves_made + 1, duration);
+            board.undo_null_move(undo_move);
+
+            if (null_eval >= beta) {
+                return beta;
+            }
+        }
+
         int original_alpha = alpha;
         uint64_t hash = board.get_current_hash();
         TranspositionTableEntry* tt_entry = transposition_table.probe(hash);
-        if (transposition_table.is_cutoff(tt_entry, depth, alpha, beta)) { return tt_entry->score; } // tt hit
+        if (transposition_table.is_cutoff(tt_entry, depth, alpha, beta)) {
+            int tt_score = tt_entry->score; //update eval
+
+            if (tt_score >= MATE_THRESHOLD) tt_score -= moves_made; // mate score re-adjusted
+            else if (tt_score <= -MATE_THRESHOLD) tt_score += moves_made;
+
+            return tt_score;
+        }
 
         MoveList moves;
         board.generate_all_legal_moves(player, moves);
@@ -88,17 +123,21 @@ namespace chess{
             if (alpha >= beta) { break; }
         }
 
-        transposition_table.insert(TranspositionTableEntry::new_entry(best_eval, original_alpha, beta, depth, best_move, hash));
+        if (duration.time_up()) { return best_eval; } // make sure not to add time up to tt
+
+        int tt_store_score = best_eval;
+        if (tt_store_score >= MATE_THRESHOLD) tt_store_score += moves_made; // adjust for mate
+        else if (tt_store_score <= -MATE_THRESHOLD) tt_store_score -= moves_made;
+
+        transposition_table.insert(TranspositionTableEntry::new_entry(
+            tt_store_score, original_alpha, beta, depth, best_move, hash
+        ));
+
         return best_eval;
     }
 
-    inline bool time_up(int limit_ms, std::chrono::steady_clock::time_point start) {
-        if (limit_ms == -1) return false;
-        auto now = std::chrono::steady_clock::now();
-        return std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count() >= limit_ms;
-    }
-
     SearchResult find_best_move(Board &board, Colour player, int max_depth, int time_limit_ms) {
+        nodes_evaluated = 0;
         MoveList moves;
         board.generate_all_legal_moves(player, moves);
         if (moves.empty()) return SearchResult{Move{}, board.is_draw() ? 0 : -INFTY};
@@ -106,10 +145,9 @@ namespace chess{
         Move best_move = Move{};
         int best_eval = -INFTY;
 
-        auto start = std::chrono::steady_clock::now();
+        Duration duration(time_limit_ms);
 
         order_moves(moves, board);
-
 
         for (int depth = 1; depth <= max_depth; depth++) {
             Move best_iteration_move = Move{};
@@ -128,10 +166,10 @@ namespace chess{
             }
 
             for (Move move : moves) {
-                if (time_up(time_limit_ms, start)) break;
+                if (duration.time_up()) break;
 
                 UndoMove undo = board.play_move(move);
-                int eval = -negamax(board, opposite(player), depth - 1, -beta, -alpha, 1);
+                int eval = -negamax(board, opposite(player), depth - 1, -beta, -alpha, 1, duration);
                 board.undo_move(undo);
 
                 if (eval > best_iteration_eval) {
@@ -142,7 +180,7 @@ namespace chess{
                 alpha = std::max(alpha, eval);
             }
 
-            if (time_up(time_limit_ms, start)) break;
+            if (duration.time_up()) break;
 
             best_move = best_iteration_move;
             best_eval = best_iteration_eval;
@@ -153,8 +191,6 @@ namespace chess{
 
         return {best_move, best_eval};
     }
-
-
 
     std::mt19937& global_gen() {
         static std::mt19937 gen(std::random_device{}());
