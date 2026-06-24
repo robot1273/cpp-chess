@@ -7,7 +7,7 @@ enum Process {
     PERFT,          // benchmark and test suite for engine performance
 };
 
-Process process = CUTECHESS;
+Process process = PERFT;
 
 int main() {
     switch (process) {
@@ -16,7 +16,7 @@ int main() {
         case CUTECHESS:
             return CuteChessAPI::run();
         case BENCHMARK:
-            return benchmark(9);
+            return benchmark(7);
         case PERFT:
             return run_perft();
         default:

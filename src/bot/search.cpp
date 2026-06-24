@@ -91,7 +91,7 @@ namespace chess{
 
         if (depth >= 3 && !in_check && eval(board, player) >= beta && has_non_pawn_material) {
             UndoMove undo_move = board.play_null_move();
-            int null_eval = -negamax(board, opposite(player), depth - 1 - 2, -beta, -beta + 1, moves_made + 1, duration);
+            int null_eval = -negamax(board, opposite(player), depth/6, -beta, -beta + 1, moves_made + 1, duration);
             board.undo_null_move(undo_move);
 
             if (null_eval >= beta) { return beta; }
@@ -139,8 +139,7 @@ namespace chess{
                 // late move reduction
                 if (depth >= 3 && !in_check && is_quiet && move_idx >= 4) {
                     // if the move is not a capture or promotion, reduce depth and search with zero window
-                    int reduction = 1;
-                    if (depth > 4 && move_idx >= 6) reduction = 2; // scale reduction for very late moves
+                    int reduction = 2 + (move_idx > 6) + (depth > 6);
                     eval = -negamax(board, opposite(player), depth - 1 - reduction + extension, -(alpha + 1), -alpha, moves_made + 1, duration);
                     if (eval <= alpha) { needs_full_search = false; } // verified this was a bad move, we dont re-seach
                 }
