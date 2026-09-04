@@ -6,3 +6,4 @@ output.txt
 test.py
 compile_commands.json
 .cache
+*.pgn

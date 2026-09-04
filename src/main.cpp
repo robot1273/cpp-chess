@@ -7,7 +7,7 @@ enum Process {
     PERFT,          // benchmark and test suite for engine performance
 };
 
-Process process = PERFT;
+Process process = CUTECHESS;
 
 int main() {
     switch (process) {

@@ -23,8 +23,13 @@ namespace chess{
     static const int TRANSPOSITION_TABLE_SIZE_EXP = 22; // 2^20 entries (HAS TO BE POWER OF 2 for fast idx)
     TranspositionTable transposition_table(TRANSPOSITION_TABLE_SIZE_EXP);
 
-    int quiescence(Board& board, int alpha, int beta, Colour player, int depth = 0) {
+    int quiescence(Board& board, int alpha, int beta, Colour player, Duration& duration, int depth = 0) {
         nodes_evaluated++;
+
+        if ((nodes_evaluated & 2047) == 0 && duration.time_up()) {
+            return 0;
+        }
+
         if (depth >= MAX_QUIESCENCE_DEPTH) { return eval(board, player); }
 
         uint64_t hash = board.get_current_hash();
@@ -57,7 +62,7 @@ namespace chess{
 
         for (const Move& move : moves) {
             UndoMove undo = board.play_move(move);
-            int eval = -quiescence(board, -beta, -alpha, opposite(player), depth+1);
+            int eval = -quiescence(board, -beta, -alpha, opposite(player), duration, depth+1);
             board.undo_move(undo);
 
             if (eval > best_eval) { best_eval = eval; best_move = move; }
@@ -72,9 +77,9 @@ namespace chess{
         return best_eval;
     }
 
-    int negamax(Board& board, Colour player, int depth, int alpha, int beta, int moves_made, Duration duration = Duration{}){
+    int negamax(Board& board, Colour player, int depth, int alpha, int beta, int moves_made, Duration& duration){
         nodes_evaluated++;
-        if (depth == 0) { return quiescence(board, alpha, beta, player); }
+        if (depth == 0) { return quiescence(board, alpha, beta, player, duration); }
         if (board.is_draw()) { return -DRAW_PENALTY; } // make a draw slightly undesirable
 
         if ((nodes_evaluated & 2047) == 0) { // mod 2048
@@ -153,6 +158,8 @@ namespace chess{
             }
             board.undo_move(undo);
 
+            if (duration.time_up()) return 0;
+
             if (eval > best_eval) { best_eval = eval; best_move = move; }
             if (eval > alpha) { alpha = eval; }
             if (alpha >= beta) { // store killer move
@@ -186,7 +193,7 @@ namespace chess{
         board.generate_all_legal_moves(player, moves);
         if (moves.empty()) return SearchResult{Move{}, board.is_draw() ? 0 : -INFTY};
 
-        Move best_move = Move{};
+        Move best_move = moves.begin()[0];
         int best_eval = -INFTY;
         Duration duration(time_limit_ms);
 
@@ -199,7 +206,9 @@ namespace chess{
 
         int depth_reached = 0;
         for (int depth = 1; depth <= max_depth; depth++) {
+            if (duration.time_up()) break;
             depth_reached = depth;
+
             int alpha = -INFTY;
             int beta = INFTY;
 
@@ -208,11 +217,12 @@ namespace chess{
                 beta  = std::min(INFTY, best_eval + ASPIRATION_WINDOW_PADDING);
             }
 
-            while (true) {
-                Move best_iteration_move = Move{};
-                int best_iteration_eval = -INFTY;
-                int current_alpha = alpha;
+            Move best_iteration_move = Move{};
+            int best_iteration_eval = -INFTY;
+            bool completed_depth = true;
 
+            while (true) {
+                best_iteration_eval = -INFTY;
                 // get best move from previous iteration to front
                 if (depth > 1) {
                     for (int i = 0; i < moves.size(); ++i) {
@@ -223,12 +233,15 @@ namespace chess{
                     }
                 }
 
+                int current_alpha = alpha;
                 for (Move move : moves) {
-                    if (duration.time_up()) break;
+                    if (duration.time_up()) { completed_depth = false; break; }
 
                     UndoMove undo = board.play_move(move);
                     int eval = -negamax(board, opposite(player), depth - 1, -beta, -current_alpha, 1, duration);
                     board.undo_move(undo);
+
+                    if (duration.time_up()) { completed_depth = false; break; }
 
                     if (eval > best_iteration_eval) {
                         best_iteration_eval = eval;
@@ -249,9 +262,17 @@ namespace chess{
                 break;
             }
 
-            if (duration.time_up()) break;
+            if (completed_depth) {
+                best_move = best_iteration_move;
+                best_eval = best_iteration_eval;
+                depth_reached = depth;
+            } else {
+                break; // stop iterative deepening on timeout
+            }
+
             if (best_eval >= MATE_THRESHOLD) break;
         }
+
 
         return {best_move, best_eval, depth_reached};
     }
