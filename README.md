@@ -1,4 +1,4 @@
-# my probably terrible cpp chess engine
+# my not-so terrible cpp chess engine
 
 kutay i will destroy you
 
